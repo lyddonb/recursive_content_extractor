@@ -1,0 +1,81 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "recursive-content-extractor"
+version = "0.1.0"
+description = "Recursively extract content from web pages, following embedded links to build a content tree"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "trafilatura>=1.12.0",
+    "tldextract>=5.0.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.40.0"]
+youtube = ["yt-dlp>=2024.1.0", "youtube-transcript-api>=0.6.0"]
+pdf = ["pymupdf>=1.24.0"]
+all = [
+    "recursive-content-extractor[browser,youtube,pdf]",
+]
+dev = [
+    "recursive-content-extractor[all]",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-httpx>=0.34.0",
+    "mypy>=1.10.0",
+    "ruff>=0.7.0",
+    "pre-commit>=3.7.0",
+]
+
+[project.scripts]
+rce = "recursive_content_extractor.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/recursive_content_extractor"]
+
+[tool.ruff]
+target-version = "py311"
+src = ["src", "tests"]
+line-length = 99
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "TCH", # flake8-type-checking
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",   # line length (handled by formatter)
+    "SIM108", # ternary operator
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["recursive_content_extractor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true

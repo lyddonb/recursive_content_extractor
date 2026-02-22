@@ -1,11 +1,11 @@
-"""Recursive Content Extractor — main orchestrator.
+"""Recursive Content Extractor -- main orchestrator.
 
 This is the primary entry point. It recursively extracts content from a URL,
 following embedded links up to a configurable depth, building a tree of
 ContentNode objects.
 
 Usage:
-    from extractor import RecursiveExtractor
+    from recursive_content_extractor import RecursiveExtractor
 
     extractor = RecursiveExtractor(depth=2)
     result = await extractor.extract("https://example.com/article")
@@ -17,28 +17,20 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import logging
-from typing import Type
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, urlencode, urlparse
 
-from classifier import URLClassifier
-from extractors import BaseExtractor
-from models import ContentNode, ContentType, ExtractorConfig
+from recursive_content_extractor.classifier import URLClassifier
+from recursive_content_extractor.models import ContentNode, ContentType, ExtractorConfig
+
+if TYPE_CHECKING:
+    from recursive_content_extractor.extractors.base import BaseExtractor
 
 logger = logging.getLogger(__name__)
 
 
 class RecursiveExtractor:
-    """Recursively extracts content from URLs, following links to build a context tree.
-
-    Args:
-        depth: Maximum recursion depth (0 = root only, 1 = root + direct links, etc.)
-        config: Full configuration object (overrides depth if provided)
-
-    Example:
-        extractor = RecursiveExtractor(depth=1)
-        result = await extractor.extract("https://example.com")
-        print(result.to_json())
-    """
+    """Recursively extracts content from URLs, following links to build a context tree."""
 
     def __init__(
         self,
@@ -52,25 +44,16 @@ class RecursiveExtractor:
 
         self.classifier = URLClassifier(config=self.config)
         self._visited: set[str] = set()
-        self._semaphore = asyncio.Semaphore(5)  # Max concurrent requests
+        self._semaphore = asyncio.Semaphore(self.config.max_concurrent_requests)
 
     def register_extractor(
-        self, extractor_class: Type[BaseExtractor], priority: int | None = None
+        self, extractor_class: type[BaseExtractor], priority: int | None = None
     ):
-        """Register a custom extractor.
-
-        Args:
-            extractor_class: Must implement BaseExtractor interface.
-            priority: Higher values are checked first. Default from class.
-        """
+        """Register a custom extractor."""
         self.classifier.register(extractor_class, priority)
 
     async def extract(self, url: str) -> ContentNode:
-        """Recursively extract content starting from the given URL.
-
-        Returns:
-            ContentNode tree with all extracted content and children.
-        """
+        """Recursively extract content starting from the given URL."""
         self._visited.clear()
         logger.info(f"Starting extraction: {url} (max depth: {self.config.depth})")
 
@@ -86,22 +69,19 @@ class RecursiveExtractor:
 
     async def _extract_recursive(self, url: str, depth: int) -> ContentNode:
         """Internal recursive extraction method."""
-        # Normalize URL
         url = self._normalize_url(url)
 
-        # Check if already visited (cycle detection)
         if url in self._visited:
             logger.debug(f"[depth={depth}] Skipping already visited: {url}")
             return ContentNode(
                 url=url,
-                content="[Already visited — skipping to prevent cycles]",
+                content="[Already visited -- skipping to prevent cycles]",
                 content_type=ContentType.GENERIC,
                 depth=depth,
             )
 
         self._visited.add(url)
 
-        # Check URL against include/exclude patterns
         if not self._should_follow(url):
             logger.debug(f"[depth={depth}] URL excluded by pattern: {url}")
             return ContentNode(
@@ -111,11 +91,8 @@ class RecursiveExtractor:
                 depth=depth,
             )
 
-        # Extract content from this URL
         extractor_name = self.classifier.classify(url)
-        logger.info(
-            f"[depth={depth}] Extracting: {url} (using {extractor_name})"
-        )
+        logger.info(f"[depth={depth}] Extracting: {url} (using {extractor_name})")
 
         async with self._semaphore:
             extractor = self.classifier.get_extractor(url)
@@ -130,7 +107,6 @@ class RecursiveExtractor:
                     depth=depth,
                 )
 
-        # Build the node
         node = ContentNode(
             url=url,
             title=result.title,
@@ -140,29 +116,20 @@ class RecursiveExtractor:
             depth=depth,
         )
 
-        # Recurse into discovered links if we haven't hit max depth
         if depth < self.config.depth and result.links:
             links_to_follow = [
-                link for link in result.links
-                if self._normalize_url(link) not in self._visited
-                   and self._should_follow(link)
+                link
+                for link in result.links
+                if self._normalize_url(link) not in self._visited and self._should_follow(link)
             ]
 
             if links_to_follow:
-                logger.info(
-                    f"[depth={depth}] Following {len(links_to_follow)} links "
-                    f"from {url}"
-                )
+                logger.info(f"[depth={depth}] Following {len(links_to_follow)} links from {url}")
 
-                # Rate limit: small delay between batches
                 if self.config.rate_limit_delay > 0:
                     await asyncio.sleep(self.config.rate_limit_delay)
 
-                # Extract children concurrently (with semaphore limiting)
-                tasks = [
-                    self._extract_recursive(link, depth + 1)
-                    for link in links_to_follow
-                ]
+                tasks = [self._extract_recursive(link, depth + 1) for link in links_to_follow]
                 children = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for child in children:
@@ -176,56 +143,51 @@ class RecursiveExtractor:
     def _normalize_url(self, url: str) -> str:
         """Normalize a URL to prevent duplicate visits.
 
-        Strips fragments, trailing slashes, and normalizes scheme.
+        Strips fragments, trailing slashes, normalizes scheme/domain/query params.
         """
         parsed = urlparse(url)
 
-        # Remove fragment
-        normalized = parsed._replace(fragment="")
+        # Normalize scheme: http -> https
+        scheme = "https" if parsed.scheme in ("http", "https") else parsed.scheme
 
-        # Rebuild
+        # Lowercase and strip www from domain
+        netloc = parsed.netloc.lower()
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+
+        # Remove fragment
+        # Sort query parameters for consistent dedup
+        query = urlencode(
+            sorted(parse_qs(parsed.query, keep_blank_values=True).items()), doseq=True
+        )
+
+        normalized = parsed._replace(scheme=scheme, netloc=netloc, fragment="", query=query)
         result = normalized.geturl()
 
         # Strip trailing slash (but not for root paths)
-        if result.endswith("/") and parsed.path != "/":
+        if result.endswith("/") and parsed.path not in ("/", ""):
             result = result.rstrip("/")
 
         return result
 
     def _should_follow(self, url: str) -> bool:
         """Check if a URL matches include/exclude patterns."""
-        # Check excludes first
         for pattern in self.config.exclude_patterns:
             if fnmatch.fnmatch(url, pattern):
                 return False
 
-        # Then check includes
         if self.config.include_patterns == ["*"]:
             return True
 
-        for pattern in self.config.include_patterns:
-            if fnmatch.fnmatch(url, pattern):
-                return True
-
-        return False
+        return any(fnmatch.fnmatch(url, pattern) for pattern in self.config.include_patterns)
 
 
-# Convenience function for simple usage
 async def extract_url(
     url: str,
     depth: int = 1,
     use_browser: bool = False,
 ) -> ContentNode:
-    """Quick extraction function.
-
-    Args:
-        url: The URL to extract content from.
-        depth: How many levels of links to follow (0=root only).
-        use_browser: Whether to use Playwright for JS-rendered pages.
-
-    Returns:
-        ContentNode tree with all extracted content.
-    """
+    """Quick extraction function."""
     config = ExtractorConfig(depth=depth, use_browser=use_browser)
     extractor = RecursiveExtractor(config=config)
     return await extractor.extract(url)

@@ -1,29 +1,15 @@
-#!/usr/bin/env python3
-"""CLI for the Recursive Content Extractor.
-
-Usage:
-    python cli.py https://example.com/article
-    python cli.py https://x.com/user/status/123 --depth 2 --browser
-    python cli.py https://example.com --format json --output result.json
-"""
+"""CLI for the Recursive Content Extractor."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import sys
 from pathlib import Path
 
-try:
-    import click
-except ImportError:
-    print("Click not installed. Run: pip install click")
-    print("Or use the Python API directly — see README.md")
-    sys.exit(1)
+import click
 
-from extractor import RecursiveExtractor
-from models import ExtractorConfig
+from recursive_content_extractor.extractor import RecursiveExtractor
+from recursive_content_extractor.models import ContentNode, ExtractorConfig
 
 
 def setup_logging(verbose: bool):
@@ -33,7 +19,6 @@ def setup_logging(verbose: bool):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    # Quiet down noisy libraries
     if not verbose:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -43,31 +28,37 @@ def setup_logging(verbose: bool):
 @click.command()
 @click.argument("url")
 @click.option(
-    "--depth", "-d",
+    "--depth",
+    "-d",
     default=1,
     type=int,
     help="Recursion depth (0=root only, 1=root+links, etc.)",
 )
 @click.option(
-    "--format", "-f", "output_format",
+    "--format",
+    "-f",
+    "output_format",
     default="markdown",
     type=click.Choice(["markdown", "json", "tree"]),
     help="Output format",
 )
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     default=None,
     type=click.Path(),
     help="Write output to file instead of stdout",
 )
 @click.option(
-    "--browser", "-b",
+    "--browser",
+    "-b",
     is_flag=True,
     default=False,
     help="Use headless browser for JS-rendered pages (requires playwright)",
 )
 @click.option(
-    "--max-links", "-l",
+    "--max-links",
+    "-l",
     default=20,
     type=int,
     help="Max links to follow per page",
@@ -90,7 +81,8 @@ def setup_logging(verbose: bool):
     help="URL patterns to exclude (glob syntax, repeatable)",
 )
 @click.option(
-    "--verbose", "-v",
+    "--verbose",
+    "-v",
     is_flag=True,
     default=False,
     help="Enable verbose/debug logging",
@@ -114,14 +106,11 @@ def main(
 
     Examples:
 
-        # Extract an article and its embedded links
-        python cli.py https://example.com/article
+        rce https://example.com/article
 
-        # Deep extraction with browser rendering
-        python cli.py https://x.com/user/status/123 --depth 2 --browser
+        rce https://x.com/user/status/123 --depth 2 --browser
 
-        # Save as JSON
-        python cli.py https://example.com --format json -o result.json
+        rce https://example.com --format json -o result.json
     """
     setup_logging(verbose)
 
@@ -140,10 +129,8 @@ def main(
     click.echo(f"Depth: {depth} | Browser: {browser} | Max links/page: {max_links}")
     click.echo("---")
 
-    # Run the async extraction
     result = asyncio.run(extractor.extract(url))
 
-    # Format output
     if output_format == "json":
         formatted = result.to_json(indent=2)
     elif output_format == "tree":
@@ -151,7 +138,6 @@ def main(
     else:
         formatted = result.to_markdown()
 
-    # Output
     if output:
         path = Path(output)
         path.write_text(formatted, encoding="utf-8")
@@ -159,28 +145,28 @@ def main(
     else:
         click.echo(formatted)
 
-    # Summary
     click.echo("\n---")
     click.echo(f"Total nodes: {result.total_nodes}")
     click.echo(f"Total content: {result.total_content_length:,} chars")
 
 
-def _format_tree(node, indent: int = 0) -> str:
+def _format_tree(node: ContentNode, indent: int = 0) -> str:
     """Format a ContentNode tree as an indented tree view."""
     lines = []
     prefix = "  " * indent
-    connector = "├── " if indent > 0 else ""
+    connector = "\u251c\u2500\u2500 " if indent > 0 else ""
 
-    status = "✓" if node.content else "✗"
+    status = "\u2713" if node.content else "\u2717"
     content_preview = (
         node.content[:60].replace("\n", " ") + "..."
         if node.content and len(node.content) > 60
-        else node.content.replace("\n", " ") if node.content else "[empty]"
+        else node.content.replace("\n", " ")
+        if node.content
+        else "[empty]"
     )
 
     lines.append(
-        f"{prefix}{connector}[{status}] {node.content_type.value}: "
-        f"{node.title or node.url}"
+        f"{prefix}{connector}[{status}] {node.content_type.value}: {node.title or node.url}"
     )
     lines.append(f"{prefix}    URL: {node.url}")
     lines.append(f"{prefix}    Content: {content_preview}")
@@ -192,7 +178,3 @@ def _format_tree(node, indent: int = 0) -> str:
         lines.append(_format_tree(child, indent + 1))
 
     return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    main()

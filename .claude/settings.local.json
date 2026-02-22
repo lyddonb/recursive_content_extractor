@@ -3,7 +3,14 @@
     "allow": [
       "Bash(python3:*)",
       "Bash(grep:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(git:*)",
+      "Bash(echo uv not found in PATH:*)",
+      "Bash(which uv:*)",
+      "Bash(uv venv:*)",
+      "Bash(uv pip:*)",
+      "Bash(uv run:*)",
+      "Bash(uv lock:*)"
     ]
   }
 }

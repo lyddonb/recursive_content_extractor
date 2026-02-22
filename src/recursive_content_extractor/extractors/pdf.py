@@ -10,29 +10,15 @@ import logging
 import tempfile
 from pathlib import Path
 
-import httpx
-
-from extractors import BaseExtractor
-from models import ContentType, ExtractionResult, ExtractorConfig
+from recursive_content_extractor.exceptions import DependencyMissingError
+from recursive_content_extractor.extractors.base import BaseExtractor
+from recursive_content_extractor.models import ContentType, ExtractionResult
 
 logger = logging.getLogger(__name__)
 
 
 class PDFExtractor(BaseExtractor):
     """Extracts text and links from PDF documents."""
-
-    def __init__(self, config: ExtractorConfig | None = None):
-        super().__init__(config)
-        self._client: httpx.AsyncClient | None = None
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=self.config.timeout,
-                headers={"User-Agent": self.config.user_agent},
-                follow_redirects=True,
-            )
-        return self._client
 
     @staticmethod
     def can_handle(url: str) -> bool:
@@ -52,12 +38,9 @@ class PDFExtractor(BaseExtractor):
         try:
             import fitz  # PyMuPDF
         except ImportError:
-            return ExtractionResult(
-                url=url,
-                content_type=ContentType.PDF,
-                content="[PyMuPDF (fitz) not installed. Run: pip install pymupdf]",
-                metadata={"error": "pymupdf_not_installed"},
-            )
+            raise DependencyMissingError("pymupdf", "PDF extraction") from None
+
+        import httpx
 
         client = await self._get_client()
 
@@ -95,23 +78,16 @@ class PDFExtractor(BaseExtractor):
                     if uri and uri.startswith("http"):
                         links.append(uri)
 
+            # Extract metadata before closing
+            metadata_dict = {}
+            meta = doc.metadata
+            if meta:
+                metadata_dict = {k: v for k, v in meta.items() if v}
+
             doc.close()
 
             content = "\n\n".join(text_parts)
             title = self._extract_title(content)
-
-            # Extract metadata
-            metadata_dict = {}
-            try:
-                doc = fitz.open(tmp_path)
-                meta = doc.metadata
-                if meta:
-                    metadata_dict = {
-                        k: v for k, v in meta.items() if v
-                    }
-                doc.close()
-            except Exception:
-                pass
 
             return ExtractionResult(
                 url=url,
@@ -137,11 +113,7 @@ class PDFExtractor(BaseExtractor):
         """Try to extract a title from the first lines of PDF text."""
         lines = content.split("\n")
         for line in lines[:10]:
-            stripped = line.strip().strip("-— ")
+            stripped = line.strip().strip("-\u2014 ")
             if stripped and len(stripped) > 5 and not stripped.startswith("Page"):
                 return stripped[:200]
         return ""
-
-    async def close(self):
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()

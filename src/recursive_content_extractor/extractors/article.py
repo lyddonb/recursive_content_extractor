@@ -11,57 +11,39 @@ import logging
 import re
 from urllib.parse import urljoin, urlparse
 
-import httpx
 from bs4 import BeautifulSoup
 
 try:
     import trafilatura
 except ImportError:
-    trafilatura = None
+    trafilatura = None  # type: ignore[assignment]
 
-from extractors import BaseExtractor
-from models import ContentType, ExtractionResult, ExtractorConfig
+from recursive_content_extractor.extractors.base import BaseExtractor
+from recursive_content_extractor.models import ContentType, ExtractionResult
 
 logger = logging.getLogger(__name__)
 
 # Patterns for embedded content we want to extract URLs from
 EMBED_PATTERNS = {
     # X/Twitter embeds
-    "x_embed": re.compile(
-        r'https?://(?:twitter\.com|x\.com)/\w+/status/\d+', re.IGNORECASE
-    ),
+    "x_embed": re.compile(r"https?://(?:twitter\.com|x\.com)/\w+/status/\d+", re.IGNORECASE),
     # YouTube embeds
     "yt_embed": re.compile(
-        r'https?://(?:www\.)?(?:youtube\.com/(?:watch\?v=|embed/)|youtu\.be/)[\w-]+',
+        r"https?://(?:www\.)?(?:youtube\.com/(?:watch\?v=|embed/)|youtu\.be/)[\w-]+",
         re.IGNORECASE,
     ),
     # Generic URL pattern for data attributes and JS
-    "generic_url": re.compile(
-        r'https?://[^\s"\'\)<>]+', re.IGNORECASE
-    ),
+    "generic_url": re.compile(r'https?://[^\s"\'\)<>]+', re.IGNORECASE),
 }
 
 
 class ArticleExtractor(BaseExtractor):
     """Extracts content from generic web articles and pages.
 
-    This is the fallback extractor — it handles any URL not claimed
+    This is the fallback extractor -- it handles any URL not claimed
     by a more specific extractor. Uses trafilatura for clean text
     extraction and BeautifulSoup for structural link discovery.
     """
-
-    def __init__(self, config: ExtractorConfig | None = None):
-        super().__init__(config)
-        self._client: httpx.AsyncClient | None = None
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=self.config.timeout,
-                headers={"User-Agent": self.config.user_agent},
-                follow_redirects=True,
-            )
-        return self._client
 
     @staticmethod
     def can_handle(url: str) -> bool:
@@ -70,9 +52,11 @@ class ArticleExtractor(BaseExtractor):
 
     @staticmethod
     def priority() -> int:
-        return -100  # Lowest priority — fallback extractor
+        return -100  # Lowest priority -- fallback extractor
 
     async def extract(self, url: str) -> ExtractionResult:
+        import httpx
+
         client = await self._get_client()
         try:
             resp = await client.get(url)
@@ -93,7 +77,7 @@ class ArticleExtractor(BaseExtractor):
             return ExtractionResult(
                 url=url,
                 content_type=ContentType.PDF,
-                content="[PDF detected — use PDF extractor]",
+                content="[PDF detected -- use PDF extractor]",
                 metadata={"content_type_header": content_type_header},
             )
 
@@ -142,26 +126,26 @@ class ArticleExtractor(BaseExtractor):
             )
             if metadata:
                 import json
+
                 try:
                     meta = json.loads(metadata)
                     title = meta.get("title", "")
                 except (json.JSONDecodeError, TypeError):
                     pass
 
-        # Fallback: BeautifulSoup basic extraction
+        # Get title from BS4 if trafilatura didn't provide one
+        if not title:
+            soup = BeautifulSoup(html, "lxml")
+            title_tag = soup.find("title")
+            if title_tag:
+                title = title_tag.get_text(strip=True)
+
+        # Fallback: BeautifulSoup content extraction
         if not content:
             soup = BeautifulSoup(html, "lxml")
 
-            # Get title
-            if not title:
-                title_tag = soup.find("title")
-                if title_tag:
-                    title = title_tag.get_text(strip=True)
-
             # Remove noise elements
-            for tag in soup.find_all(
-                ["script", "style", "nav", "footer", "header", "aside"]
-            ):
+            for tag in soup.find_all(["script", "style", "nav", "footer", "header", "aside"]):
                 tag.decompose()
 
             # Try article tag first, then main, then body
@@ -176,7 +160,7 @@ class ArticleExtractor(BaseExtractor):
     def _extract_links(self, html: str, base_url: str) -> list[str]:
         """Extract all interesting links from the page.
 
-        This goes beyond simple <a href> tags — it also finds:
+        This goes beyond simple <a href> tags -- it also finds:
         - Embedded tweet URLs (in blockquotes, data attributes, iframes)
         - YouTube embeds (iframes, data attributes)
         - Links in structured data / JSON-LD
@@ -187,38 +171,38 @@ class ArticleExtractor(BaseExtractor):
 
         # 1. Standard <a> tags
         for a in soup.find_all("a", href=True):
-            href = a["href"]
+            href = str(a["href"])
             if href and not href.startswith(("#", "javascript:", "mailto:")):
                 absolute = urljoin(base_url, href)
                 found_urls.add(absolute)
 
         # 2. Iframes (YouTube embeds, etc.)
         for iframe in soup.find_all("iframe", src=True):
-            src = iframe["src"]
+            src = str(iframe["src"])
             absolute = urljoin(base_url, src)
             found_urls.add(absolute)
 
         # 3. Embedded tweet blockquotes (Twitter widget format)
         for bq in soup.find_all("blockquote", class_="twitter-tweet"):
             for a in bq.find_all("a", href=True):
-                href = a["href"]
+                href = str(a["href"])
                 if "twitter.com" in href or "x.com" in href:
                     found_urls.add(href)
 
         # 4. data-* attributes that might contain URLs
         for tag in soup.find_all(attrs={"data-src": True}):
-            found_urls.add(urljoin(base_url, tag["data-src"]))
+            found_urls.add(urljoin(base_url, str(tag["data-src"])))
         for tag in soup.find_all(attrs={"data-url": True}):
-            found_urls.add(urljoin(base_url, tag["data-url"]))
+            found_urls.add(urljoin(base_url, str(tag["data-url"])))
         for tag in soup.find_all(attrs={"data-href": True}):
-            found_urls.add(urljoin(base_url, tag["data-href"]))
+            found_urls.add(urljoin(base_url, str(tag["data-href"])))
 
         # 5. Scan raw HTML for embedded X/Twitter and YouTube URLs
         #    (catches dynamically injected embeds)
         if self.config.extract_embedded_urls:
             for pattern_name, pattern in EMBED_PATTERNS.items():
                 if pattern_name == "generic_url":
-                    continue  # Skip generic — too noisy
+                    continue  # Skip generic -- too noisy
                 for match in pattern.finditer(html):
                     url = match.group(0).rstrip('",;)\\')
                     found_urls.add(url)
@@ -234,8 +218,13 @@ class ArticleExtractor(BaseExtractor):
 
         # Domains we always want to follow
         high_value_domains = {
-            "twitter.com", "x.com", "youtube.com", "youtu.be",
-            "github.com", "medium.com", "substack.com",
+            "twitter.com",
+            "x.com",
+            "youtube.com",
+            "youtu.be",
+            "github.com",
+            "medium.com",
+            "substack.com",
         }
 
         for url in urls:
@@ -249,15 +238,27 @@ class ArticleExtractor(BaseExtractor):
             if any(
                 skip in url.lower()
                 for skip in [
-                    "/share?", "/intent/", "accounts.google",
-                    "login", "signup", "signin", "/auth/",
-                    ".css", ".js", ".ico", ".png", ".jpg", ".gif",
-                    "privacy", "terms", "cookie",
+                    "/share?",
+                    "/intent/",
+                    "accounts.google",
+                    "login",
+                    "signup",
+                    "signin",
+                    "/auth/",
+                    ".css",
+                    ".js",
+                    ".ico",
+                    ".png",
+                    ".jpg",
+                    ".gif",
+                    "privacy",
+                    "terms",
+                    "cookie",
                 ]
             ):
                 continue
 
-            domain = parsed.netloc.lower().lstrip("www.")
+            domain = parsed.netloc.lower().removeprefix("www.")
 
             # Always keep high-value domains
             if any(hvd in domain for hvd in high_value_domains):
@@ -266,7 +267,7 @@ class ArticleExtractor(BaseExtractor):
 
             # If configured, only follow same-domain links
             if self.config.follow_same_domain_only:
-                if domain == base_domain.lower().lstrip("www."):
+                if domain == base_domain.lower().removeprefix("www."):
                     interesting.append(url)
                 continue
 
@@ -282,15 +283,15 @@ class ArticleExtractor(BaseExtractor):
 
         # Open Graph tags
         for og in soup.find_all("meta", property=re.compile(r"^og:")):
-            prop = og.get("property", "").replace("og:", "")
-            content = og.get("content", "")
+            prop = str(og.get("property", "")).replace("og:", "")
+            content = str(og.get("content", ""))
             if prop and content:
                 metadata[f"og_{prop}"] = content
 
         # Twitter card tags
         for tc in soup.find_all("meta", attrs={"name": re.compile(r"^twitter:")}):
-            name = tc.get("name", "").replace("twitter:", "")
-            content = tc.get("content", "")
+            name = str(tc.get("name", "")).replace("twitter:", "")
+            content = str(tc.get("content", ""))
             if name and content:
                 metadata[f"twitter_{name}"] = content
 
@@ -298,10 +299,6 @@ class ArticleExtractor(BaseExtractor):
         for name_key in ["author", "description", "keywords", "date", "published_time"]:
             tag = soup.find("meta", attrs={"name": name_key})
             if tag and tag.get("content"):
-                metadata[name_key] = tag["content"]
+                metadata[name_key] = str(tag["content"])
 
         return metadata
-
-    async def close(self):
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()

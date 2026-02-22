@@ -1,32 +1,31 @@
 """YouTube video extractor.
 
 Extracts video metadata and transcripts using multiple strategies:
-1. youtube-transcript-api — fastest, uses YouTube's built-in captions
-2. yt-dlp — reliable fallback, can extract auto-generated subs
-3. oEmbed API — metadata only (always works)
+1. youtube-transcript-api -- fastest, uses YouTube's built-in captions
+2. yt-dlp -- reliable fallback, can extract auto-generated subs
+3. oEmbed API -- metadata only (always works)
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 from urllib.parse import parse_qs, urlparse
 
-import httpx
-
-from extractors import BaseExtractor
-from models import ContentType, ExtractionResult, ExtractorConfig
+from recursive_content_extractor.extractors.base import BaseExtractor
+from recursive_content_extractor.models import ContentType, ExtractionResult
 
 logger = logging.getLogger(__name__)
 
 # Patterns to extract video IDs
 YOUTUBE_PATTERNS = [
-    re.compile(r'(?:youtube\.com/watch\?.*v=)([\w-]{11})'),
-    re.compile(r'(?:youtube\.com/embed/)([\w-]{11})'),
-    re.compile(r'(?:youtube\.com/v/)([\w-]{11})'),
-    re.compile(r'(?:youtube\.com/shorts/)([\w-]{11})'),
-    re.compile(r'(?:youtu\.be/)([\w-]{11})'),
+    re.compile(r"(?:youtube\.com/watch\?.*v=)([\w-]{11})"),
+    re.compile(r"(?:youtube\.com/embed/)([\w-]{11})"),
+    re.compile(r"(?:youtube\.com/v/)([\w-]{11})"),
+    re.compile(r"(?:youtube\.com/shorts/)([\w-]{11})"),
+    re.compile(r"(?:youtu\.be/)([\w-]{11})"),
 ]
 
 
@@ -50,23 +49,10 @@ def extract_video_id(url: str) -> str | None:
 class YouTubeExtractor(BaseExtractor):
     """Extracts transcripts and metadata from YouTube videos."""
 
-    def __init__(self, config: ExtractorConfig | None = None):
-        super().__init__(config)
-        self._client: httpx.AsyncClient | None = None
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=self.config.timeout,
-                headers={"User-Agent": self.config.user_agent},
-                follow_redirects=True,
-            )
-        return self._client
-
     @staticmethod
     def can_handle(url: str) -> bool:
         parsed = urlparse(url)
-        domain = parsed.netloc.lower().lstrip("www.")
+        domain = parsed.netloc.lower().removeprefix("www.")
         return domain in ("youtube.com", "youtu.be", "m.youtube.com")
 
     @staticmethod
@@ -100,7 +86,7 @@ class YouTubeExtractor(BaseExtractor):
         parts.append(f"Channel: {author}")
 
         if transcript:
-            parts.append(f"\n--- Transcript ---\n")
+            parts.append("\n--- Transcript ---\n")
             parts.append(transcript)
         else:
             parts.append("\n[Transcript not available]")
@@ -134,19 +120,13 @@ class YouTubeExtractor(BaseExtractor):
         try:
             resp = await client.get(oembed_url)
             if resp.status_code == 200:
-                return resp.json()
+                return dict(resp.json())
         except Exception as e:
             logger.debug(f"oEmbed fetch failed: {e}")
         return {}
 
     async def _get_transcript(self, video_id: str) -> str | None:
-        """Get video transcript using available methods.
-
-        Tries:
-        1. youtube-transcript-api (Python library)
-        2. Parsing from YouTube page directly
-        """
-
+        """Get video transcript using available methods."""
         # Strategy 1: youtube-transcript-api
         transcript = await self._try_transcript_api(video_id)
         if transcript:
@@ -164,19 +144,13 @@ class YouTubeExtractor(BaseExtractor):
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
 
-            # This is sync, but it's fast enough for our purposes
-            import asyncio
-            loop = asyncio.get_event_loop()
-            transcript_list = await loop.run_in_executor(
-                None,
-                lambda: YouTubeTranscriptApi.get_transcript(video_id),
-            )
+            api = YouTubeTranscriptApi()
+            transcript_list = await asyncio.to_thread(api.fetch, video_id)
 
             if transcript_list:
-                # Format: combine text entries with timestamps
                 parts = []
-                for entry in transcript_list:
-                    start = int(entry.get("start", 0))
+                for snippet in transcript_list:
+                    start = int(snippet.start)
                     minutes, seconds = divmod(start, 60)
                     hours, minutes = divmod(minutes, 60)
                     timestamp = (
@@ -184,7 +158,7 @@ class YouTubeExtractor(BaseExtractor):
                         if hours
                         else f"{minutes}:{seconds:02d}"
                     )
-                    text = entry.get("text", "").strip()
+                    text = snippet.text.strip()
                     if text:
                         parts.append(f"[{timestamp}] {text}")
 
@@ -198,10 +172,7 @@ class YouTubeExtractor(BaseExtractor):
         return None
 
     async def _try_page_parsing(self, video_id: str) -> str | None:
-        """Try to extract transcript data from the YouTube page HTML.
-
-        YouTube embeds caption data in the page's initial data JSON.
-        """
+        """Try to extract transcript data from the YouTube page HTML."""
         client = await self._get_client()
         try:
             resp = await client.get(
@@ -212,9 +183,10 @@ class YouTubeExtractor(BaseExtractor):
             )
             html = resp.text
 
-            # Try to find the captions player response
-            # YouTube stores this in a large JSON blob
-            pattern = re.compile(r'"captions":\s*(\{.*?"playerCaptionsTracklistRenderer".*?\})\s*,\s*"videoDetails"')
+            pattern = re.compile(
+                r'"captions":\s*(\{.*?"playerCaptionsTracklistRenderer".*?\})'
+                r'\s*,\s*"videoDetails"'
+            )
             match = pattern.search(html)
             if not match:
                 return None
@@ -222,11 +194,8 @@ class YouTubeExtractor(BaseExtractor):
             captions_json = match.group(1)
             captions_data = json.loads(captions_json)
 
-            # Get the caption track URL
-            tracks = (
-                captions_data
-                .get("playerCaptionsTracklistRenderer", {})
-                .get("captionTracks", [])
+            tracks = captions_data.get("playerCaptionsTracklistRenderer", {}).get(
+                "captionTracks", []
             )
 
             if not tracks:
@@ -244,7 +213,6 @@ class YouTubeExtractor(BaseExtractor):
             if not track_url:
                 return None
 
-            # Fetch the caption XML
             caption_resp = await client.get(track_url + "&fmt=json3")
             if caption_resp.status_code != 200:
                 return None
@@ -259,9 +227,7 @@ class YouTubeExtractor(BaseExtractor):
                 minutes, seconds = divmod(start_s, 60)
                 hours, minutes = divmod(minutes, 60)
                 timestamp = (
-                    f"{hours}:{minutes:02d}:{seconds:02d}"
-                    if hours
-                    else f"{minutes}:{seconds:02d}"
+                    f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
                 )
 
                 segs = event.get("segs", [])
@@ -274,7 +240,3 @@ class YouTubeExtractor(BaseExtractor):
         except Exception as e:
             logger.debug(f"Page parsing failed for {video_id}: {e}")
             return None
-
-    async def close(self):
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()

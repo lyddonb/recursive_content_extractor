@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any, Optional
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
 
 
-class ContentType(str, Enum):
+class ContentType(StrEnum):
     """Types of content the extractor can handle."""
+
     ARTICLE = "article"
     X_THREAD = "x_thread"
     X_POST = "x_post"
@@ -24,6 +25,7 @@ class ContentType(str, Enum):
 @dataclass
 class ExtractionResult:
     """Result from a single extractor."""
+
     url: str
     title: str = ""
     content: str = ""
@@ -31,7 +33,7 @@ class ExtractionResult:
     links: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     raw_html: str = ""
-    extracted_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    extracted_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def __repr__(self) -> str:
         return (
@@ -45,6 +47,7 @@ class ExtractionResult:
 @dataclass
 class ContentNode:
     """A node in the recursive content tree."""
+
     url: str
     title: str = ""
     content: str = ""
@@ -52,7 +55,7 @@ class ContentNode:
     metadata: dict[str, Any] = field(default_factory=dict)
     children: list[ContentNode] = field(default_factory=list)
     depth: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to a serializable dictionary."""
@@ -119,6 +122,7 @@ class ContentNode:
 @dataclass
 class ExtractorConfig:
     """Configuration for the recursive extractor."""
+
     depth: int = 1
     rate_limit_delay: float = 1.0
     max_links_per_page: int = 20
@@ -131,6 +135,21 @@ class ExtractorConfig:
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/122.0.0.0 Safari/537.36"
     )
-    max_content_length: int = 50_000  # Max chars per page
+    max_content_length: int = 50_000
     follow_same_domain_only: bool = False
-    extract_embedded_urls: bool = True  # Extract URLs from embedded tweets, iframes, etc.
+    extract_embedded_urls: bool = True
+    max_concurrent_requests: int = 5
+
+    def __post_init__(self):
+        if self.depth < 0:
+            raise ValueError(f"depth must be >= 0, got {self.depth}")
+        if self.timeout <= 0:
+            raise ValueError(f"timeout must be > 0, got {self.timeout}")
+        if self.max_links_per_page < 0:
+            raise ValueError(f"max_links_per_page must be >= 0, got {self.max_links_per_page}")
+        if self.max_concurrent_requests < 1:
+            raise ValueError(
+                f"max_concurrent_requests must be >= 1, got {self.max_concurrent_requests}"
+            )
+        if self.rate_limit_delay < 0:
+            raise ValueError(f"rate_limit_delay must be >= 0, got {self.rate_limit_delay}")

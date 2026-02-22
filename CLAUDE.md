@@ -1,40 +1,74 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
-Recursive Content Extractor: a Python CLI/library that recursively extracts content from web pages, following embedded links (X/Twitter threads, YouTube videos, articles, PDFs) to build a content tree. Fully async (asyncio-based).
+**Recursive Content Extractor** (`rce`): A Python CLI/library that recursively extracts content from web pages, following embedded links (X/Twitter threads, YouTube videos, articles, PDFs) to build a content tree. Fully async (asyncio-based).
 
 ## Commands
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-playwright install chromium  # optional, for JS-rendered pages
+# Setup (one-time)
+uv sync --extra dev
+uv run playwright install chromium   # optional, for --browser flag
 
 # Run CLI
-python cli.py <URL> [--depth N] [--format markdown|json|tree] [--browser] [--output FILE]
+uv run rce <URL> [--depth N] [--format markdown|json|tree] [--browser] [--output FILE]
 
-# Run examples
-python examples.py          # basic examples only
-python examples.py --all    # includes network-dependent examples
+# Run checks
+make check        # runs lint + typecheck + test
+make test         # uv run pytest -v
+make lint         # uv run ruff check src/ tests/
+make format       # uv run ruff format src/ tests/
+make typecheck    # uv run mypy src/
 ```
 
-There are no tests, linter, or build system configured yet.
+## Pre-commit Checklist
+
+Before committing, ensure all pass:
+1. `uv run ruff check src/ tests/` -- no lint errors
+2. `uv run ruff format --check src/ tests/` -- formatting clean
+3. `uv run mypy src/` -- no type errors
+4. `uv run pytest` -- all tests pass
+
+Or just run `make check` to do all four.
 
 ## Architecture
 
-**Import note:** `classifier.py` imports extractors as `from extractors import ...` and `from extractors.article import ...`. The root `__init__.py` defines `BaseExtractor` and acts as the `extractors` package. Other modules (`cli.py`, `extractor.py`) import siblings as top-level modules (e.g., `from extractor import RecursiveExtractor`).
+### Package Structure
+
+```
+src/recursive_content_extractor/
+  __init__.py          # Public API re-exports
+  models.py            # ContentType, ExtractionResult, ContentNode, ExtractorConfig
+  classifier.py        # URLClassifier -- routes URLs to extractors by priority
+  extractor.py         # RecursiveExtractor -- main orchestrator, recursion, cycle detection
+  cli.py               # Click CLI entry point (rce command)
+  exceptions.py        # ExtractorError hierarchy
+  extractors/
+    __init__.py         # Re-exports BaseExtractor
+    base.py             # BaseExtractor ABC (shared HTTP client)
+    article.py          # ArticleExtractor (trafilatura + BS4, priority -100, fallback)
+    twitter.py          # TwitterExtractor (FxTwitter -> syndication -> Playwright, priority 50)
+    youtube.py          # YouTubeExtractor (transcript-api -> page parsing, priority 50)
+    pdf.py              # PDFExtractor (PyMuPDF, priority 40)
+tests/
+examples/
+```
 
 ### Core Flow
 
-`URL -> URLClassifier (classifier.py) -> specific Extractor -> ExtractionResult -> ContentNode tree`
+`URL -> URLClassifier -> specific Extractor -> ExtractionResult -> ContentNode tree`
 
-- **`extractor.py`** — `RecursiveExtractor` is the main orchestrator. Manages recursion, cycle detection (visited set), concurrency (semaphore of 5), URL filtering (include/exclude patterns), and rate limiting. Entry point: `extract(url)` returns a `ContentNode` tree.
-- **`classifier.py`** — `URLClassifier` routes URLs to extractors by checking `can_handle()` in priority order (highest first). Lazily instantiates and caches extractor instances.
-- **`models.py`** — All data models: `ContentType` (enum), `ExtractionResult` (single extraction output), `ContentNode` (tree node with `to_json()`/`to_markdown()`/`flatten()`), `ExtractorConfig` (all settings).
-- **`__init__.py`** — Defines `BaseExtractor` ABC. Custom extractors must implement `can_handle(url) -> bool` (static) and `async extract(url) -> ExtractionResult`. Optional `priority() -> int` (higher = checked first).
+### Import Convention
+
+All imports use fully-qualified absolute paths: `from recursive_content_extractor.models import ExtractorConfig`
+
+### Key Patterns
+
+- **Strategy pattern**: Each extractor tries multiple methods in order (`_try_*` methods), falling back gracefully.
+- **Shared HTTP client**: `BaseExtractor` provides `_get_client()` / `close()` -- all subclasses inherit it.
+- **Custom extractors**: Register via `RecursiveExtractor.register_extractor(MyExtractor, priority=N)`.
+- **Configurable concurrency**: `ExtractorConfig.max_concurrent_requests` controls the semaphore.
 
 ### Extractors (priority order)
 
@@ -43,11 +77,4 @@ There are no tests, linter, or build system configured yet.
 | `twitter.py` | `TwitterExtractor` | 50 | FxTwitter API -> syndication API -> Playwright (if `--browser`) |
 | `youtube.py` | `YouTubeExtractor` | 50 | youtube-transcript-api -> page HTML parsing; metadata via oEmbed |
 | `pdf.py` | `PDFExtractor` | 40 | Downloads PDF, extracts text/links via PyMuPDF (fitz) |
-| `article.py` | `ArticleExtractor` | -100 | Fallback catch-all. trafilatura for content, BeautifulSoup for link discovery (a tags, iframes, embedded tweets, data-* attrs) |
-
-### Key Patterns
-
-- **Strategy pattern in extractors**: Each extractor tries multiple extraction methods in order, falling back gracefully. Check `_try_*` methods.
-- **All extractors share an httpx.AsyncClient** per instance (lazy init, cached).
-- **Custom extractors** are registered via `RecursiveExtractor.register_extractor(MyExtractor, priority=N)` — they plug into the classifier's priority chain.
-- **ContentNode.to_markdown()** flattens the entire tree into a single document; `to_json()` preserves the tree structure.
+| `article.py` | `ArticleExtractor` | -100 | Fallback catch-all. trafilatura for content, BeautifulSoup for links |
