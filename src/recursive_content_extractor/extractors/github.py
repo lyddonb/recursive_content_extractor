@@ -54,6 +54,8 @@ _RESERVED_PATHS = frozenset({
     "readme",
     "apps",
     "site",
+    "user-attachments",
+    "assets",
 })
 
 # Badge/shield hosts to skip when extracting links from README

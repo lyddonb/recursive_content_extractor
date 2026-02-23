@@ -38,6 +38,14 @@ class TestGitHubCanHandle:
         assert GitHubExtractor.can_handle("https://github.com/trending") is False
         assert GitHubExtractor.can_handle("https://github.com/topics/python") is False
 
+    def test_rejects_asset_urls(self):
+        assert (
+            GitHubExtractor.can_handle(
+                "https://github.com/user-attachments/assets/f79aaf03-fd2d-4c71-a630-7027adeb9bfe"
+            )
+            is False
+        )
+
     def test_rejects_bare_github(self):
         assert GitHubExtractor.can_handle("https://github.com") is False
         assert GitHubExtractor.can_handle("https://github.com/") is False
