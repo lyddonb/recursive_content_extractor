@@ -99,3 +99,42 @@ def oembed_response() -> dict:
         "author_url": "https://www.youtube.com/@testchannel",
         "thumbnail_url": "https://i.ytimg.com/vi/test/maxresdefault.jpg",
     }
+
+
+@pytest.fixture
+def github_repo_response() -> dict:
+    """Mock GitHub REST API repo response."""
+    return {
+        "name": "test-repo",
+        "full_name": "testowner/test-repo",
+        "description": "A test repository for unit tests",
+        "stargazers_count": 1234,
+        "forks_count": 56,
+        "language": "Python",
+        "license": {"spdx_id": "MIT", "name": "MIT License"},
+        "topics": ["testing", "python"],
+        "homepage": "https://test-repo.example.com",
+    }
+
+
+@pytest.fixture
+def arxiv_atom_response() -> str:
+    """Mock arXiv Atom API response."""
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>http://arxiv.org/abs/2301.07041v1</id>
+    <title>A Test Paper on Machine Learning</title>
+    <summary>This paper presents a novel approach to testing.
+    We demonstrate state-of-the-art results on standard benchmarks.</summary>
+    <author><name>Alice Author</name></author>
+    <author><name>Bob Researcher</name></author>
+    <published>2023-01-17T00:00:00Z</published>
+    <arxiv:primary_category term="cs.AI" />
+    <arxiv:doi>10.1234/example</arxiv:doi>
+    <arxiv:journal_ref>Test Journal 2023</arxiv:journal_ref>
+    <arxiv:comment>12 pages, 3 figures</arxiv:comment>
+    <link title="pdf" href="http://arxiv.org/pdf/2301.07041v1" rel="related" type="application/pdf"/>
+  </entry>
+</feed>"""

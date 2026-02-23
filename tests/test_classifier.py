@@ -26,6 +26,22 @@ class TestURLClassifier:
         assert classifier.classify("https://example.com/paper.pdf") == "PDFExtractor"
         assert classifier.classify("https://arxiv.org/pdf/1234.5678") == "PDFExtractor"
 
+    def test_routes_github_urls(self):
+        classifier = URLClassifier()
+        assert classifier.classify("https://github.com/owner/repo") == "GitHubExtractor"
+        assert (
+            classifier.classify("https://github.com/owner/repo/blob/main/README.md")
+            == "GitHubExtractor"
+        )
+
+    def test_routes_arxiv_abs_urls(self):
+        classifier = URLClassifier()
+        assert classifier.classify("https://arxiv.org/abs/2301.07041") == "ArXivExtractor"
+
+    def test_routes_arxiv_pdf_to_pdf_extractor(self):
+        classifier = URLClassifier()
+        assert classifier.classify("https://arxiv.org/pdf/2301.07041") == "PDFExtractor"
+
     def test_routes_generic_to_article(self):
         classifier = URLClassifier()
         assert classifier.classify("https://example.com/some-article") == "ArticleExtractor"

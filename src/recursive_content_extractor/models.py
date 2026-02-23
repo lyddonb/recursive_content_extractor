@@ -17,6 +17,8 @@ class ContentType(StrEnum):
     X_POST = "x_post"
     YOUTUBE = "youtube"
     PDF = "pdf"
+    GITHUB = "github"
+    ARXIV = "arxiv"
     GENERIC = "generic"
     UNKNOWN = "unknown"
     ERROR = "error"

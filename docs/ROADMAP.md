@@ -72,7 +72,11 @@ Detect near-duplicate content across nodes (e.g., same article syndicated on mul
 
 Allow third-party extractors to be installed as Python packages and auto-discovered via entry points (e.g., `[project.entry-points."rce.extractors"]`). Removes the need to manually call `register_extractor()`.
 
-### 14. Publish to PyPI
+### 14. Create a MCP server wrapper
+
+Add a MCP server that wraps this tool to be used by agents, especially coding agents like Claude Code, OpenAI's codex, Cursor, etc.
+
+### 15. Publish to PyPI
 
 Once stable, publish the package to PyPI so users can `pip install recursive-content-extractor` and get the `rce` CLI globally.
 

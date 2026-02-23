@@ -10,6 +10,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from recursive_content_extractor.extractors.article import ArticleExtractor
+from recursive_content_extractor.extractors.arxiv import ArXivExtractor
+from recursive_content_extractor.extractors.github import GitHubExtractor
 from recursive_content_extractor.extractors.pdf import PDFExtractor
 from recursive_content_extractor.extractors.twitter import TwitterExtractor
 from recursive_content_extractor.extractors.youtube import YouTubeExtractor
@@ -36,6 +38,8 @@ class URLClassifier:
         # Register default extractors
         self.register(TwitterExtractor)
         self.register(YouTubeExtractor)
+        self.register(GitHubExtractor)
+        self.register(ArXivExtractor)
         self.register(PDFExtractor)
         self.register(ArticleExtractor)
 

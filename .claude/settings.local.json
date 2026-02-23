@@ -11,7 +11,8 @@
       "Bash(uv pip:*)",
       "Bash(uv run:*)",
       "Bash(uv lock:*)",
-      "Bash(make check:*)"
+      "Bash(make check:*)",
+      "WebSearch"
     ]
   }
 }
