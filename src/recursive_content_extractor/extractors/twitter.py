@@ -86,6 +86,57 @@ class TwitterExtractor(BaseExtractor):
             metadata={"username": username, "status_id": status_id},
         )
 
+    @staticmethod
+    def _parse_article_blocks(article: dict) -> tuple[str, list[str]]:
+        """Parse Draft.js-style article content blocks into text and links.
+
+        Returns (content_text, extracted_links).
+        """
+        content = article.get("content", {})
+        blocks = content.get("blocks", [])
+        if not blocks:
+            return "", []
+
+        parts: list[str] = []
+        links: list[str] = []
+
+        # Collect URLs from block data
+        for block in blocks:
+            block_type = block.get("type", "unstyled")
+            text = block.get("text", "").strip()
+
+            if block_type == "atomic":
+                # Embedded media/divider -- skip empty ones
+                continue
+            elif block_type.startswith("header-"):
+                level = block_type.split("-")[-1]
+                prefix = "#" * (int(level) if level.isdigit() else 2)
+                if text:
+                    parts.append(f"\n{prefix} {text}\n")
+            elif block_type == "blockquote":
+                if text:
+                    parts.append(f"\n> {text}\n")
+            elif block_type == "ordered-list-item":
+                if text:
+                    parts.append(f"1. {text}")
+            elif block_type == "unordered-list-item":
+                if text:
+                    parts.append(f"- {text}")
+            else:
+                # unstyled or other -- regular paragraph
+                if text:
+                    parts.append(text)
+
+            # Extract URLs from block data
+            block_data = block.get("data", {})
+            for url_entry in block_data.get("urls", []):
+                if isinstance(url_entry, dict):
+                    url_text = url_entry.get("text", "")
+                    if url_text.startswith("http"):
+                        links.append(url_text)
+
+        return "\n\n".join(parts), links
+
     async def _try_fxtwitter(
         self, original_url: str, username: str, status_id: str
     ) -> ExtractionResult | None:
@@ -105,14 +156,55 @@ class TwitterExtractor(BaseExtractor):
             if not tweet:
                 return None
 
-            # Build content from tweet and thread
-            parts = []
             author = tweet.get("author", {})
             author_name = author.get("name", username)
             author_handle = author.get("screen_name", username)
 
+            # Check for X Article (long-form post)
+            article = tweet.get("article")
+            if article and article.get("content"):
+                article_title = article.get("title", "")
+                article_text, article_links = self._parse_article_blocks(article)
+
+                if article_text:
+                    parts = []
+                    parts.append(f"@{author_handle} ({author_name}):")
+                    if article_title:
+                        parts.append(f"\n# {article_title}\n")
+                    parts.append(article_text)
+
+                    content = "\n".join(parts)
+
+                    return ExtractionResult(
+                        url=original_url,
+                        title=f"@{author_handle}: {article_title}" if article_title else f"@{author_handle} article",
+                        content=content,
+                        content_type=ContentType.ARTICLE,
+                        links=article_links,
+                        metadata={
+                            "username": author_handle,
+                            "status_id": status_id,
+                            "article_title": article_title,
+                            "likes": tweet.get("likes", 0),
+                            "retweets": tweet.get("retweets", 0),
+                            "replies": tweet.get("replies", 0),
+                            "created_at": tweet.get("created_at", ""),
+                            "source": "fxtwitter_article",
+                        },
+                    )
+
+            # Build content from tweet and thread
+            parts = []
+            tweet_text = tweet.get("text", "")
+
+            # Fall back to raw_text if text is empty
+            if not tweet_text:
+                raw_text = tweet.get("raw_text", {})
+                if isinstance(raw_text, dict):
+                    tweet_text = raw_text.get("text", "")
+
             parts.append(f"@{author_handle} ({author_name}):")
-            parts.append(tweet.get("text", ""))
+            parts.append(tweet_text)
 
             # Thread / conversation
             if "thread" in tweet:
@@ -147,6 +239,10 @@ class TwitterExtractor(BaseExtractor):
                         links.append(expanded)
 
             content = "\n".join(parts)
+
+            # If content is just the author line with no actual text, return None
+            if not tweet_text.strip():
+                return None
 
             return ExtractionResult(
                 url=original_url,
