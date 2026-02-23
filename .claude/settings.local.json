@@ -10,7 +10,8 @@
       "Bash(uv venv:*)",
       "Bash(uv pip:*)",
       "Bash(uv run:*)",
-      "Bash(uv lock:*)"
+      "Bash(uv lock:*)",
+      "Bash(make check:*)"
     ]
   }
 }
