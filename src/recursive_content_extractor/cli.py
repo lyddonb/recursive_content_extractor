@@ -47,7 +47,7 @@ def setup_logging(verbose: bool):
     "-o",
     default=None,
     type=click.Path(),
-    help="Write output to file instead of stdout",
+    help="Write output to file, or to a directory if path ends with / or is an existing dir",
 )
 @click.option(
     "--browser",
@@ -140,8 +140,15 @@ def main(
 
     if output:
         path = Path(output)
-        path.write_text(formatted, encoding="utf-8")
-        click.echo(f"\nWritten to {path} ({len(formatted):,} chars)")
+        if output.endswith("/") or path.is_dir():
+            from recursive_content_extractor.writer import write_tree_to_directory
+
+            path.mkdir(parents=True, exist_ok=True)
+            write_tree_to_directory(result, path, output_format)
+            click.echo(f"\nWritten to {path}/ ({result.total_nodes} files)")
+        else:
+            path.write_text(formatted, encoding="utf-8")
+            click.echo(f"\nWritten to {path} ({len(formatted):,} chars)")
     else:
         click.echo(formatted)
 

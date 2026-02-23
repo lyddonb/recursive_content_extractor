@@ -8,6 +8,7 @@ from recursive_content_extractor.models import (
     ExtractionResult,
     ExtractorConfig,
 )
+from recursive_content_extractor.writer import write_tree_to_directory
 
 __all__ = [
     "BaseExtractor",
@@ -17,4 +18,5 @@ __all__ = [
     "ExtractorConfig",
     "RecursiveExtractor",
     "extract_url",
+    "write_tree_to_directory",
 ]
