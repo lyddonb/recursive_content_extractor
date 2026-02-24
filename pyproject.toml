@@ -70,6 +70,8 @@ known-first-party = ["recursive_content_extractor"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = ["network: tests that make real HTTP calls (deselected by default)"]
+addopts = "-m 'not network'"
 
 [tool.mypy]
 python_version = "3.11"
