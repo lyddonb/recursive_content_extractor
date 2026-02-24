@@ -7,17 +7,30 @@ import logging
 from pathlib import Path
 
 import click
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.table import Table
+from rich.tree import Tree
 
 from recursive_content_extractor.extractor import RecursiveExtractor
 from recursive_content_extractor.models import ContentNode, ExtractorConfig
 
+console = Console()
 
-def setup_logging(verbose: bool):
-    level = logging.DEBUG if verbose else logging.INFO
+
+def setup_logging(verbose: bool, quiet: bool) -> None:
+    if quiet:
+        level = logging.WARNING
+    elif verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+
     logging.basicConfig(
         level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
+        format="%(message)s",
+        datefmt="[%H:%M:%S]",
+        handlers=[RichHandler(rich_tracebacks=True, show_path=verbose)],
     )
     if not verbose:
         logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -87,6 +100,13 @@ def setup_logging(verbose: bool):
     default=False,
     help="Enable verbose/debug logging",
 )
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    default=False,
+    help="Suppress log output (only show warnings and errors)",
+)
 def main(
     url: str,
     depth: int,
@@ -98,6 +118,7 @@ def main(
     same_domain: bool,
     exclude: tuple[str, ...],
     verbose: bool,
+    quiet: bool,
 ):
     """Recursively extract content from a URL and its linked pages.
 
@@ -112,7 +133,10 @@ def main(
 
         rce https://example.com --format json -o result.json
     """
-    setup_logging(verbose)
+    if verbose and quiet:
+        raise click.UsageError("--verbose and --quiet are mutually exclusive.")
+
+    setup_logging(verbose, quiet)
 
     config = ExtractorConfig(
         depth=depth,
@@ -125,16 +149,19 @@ def main(
 
     extractor = RecursiveExtractor(config=config)
 
-    click.echo(f"Extracting: {url}")
-    click.echo(f"Depth: {depth} | Browser: {browser} | Max links/page: {max_links}")
-    click.echo("---")
+    console.rule("[bold]Recursive Content Extractor[/bold]")
+    console.print(
+        f"[bold]URL:[/bold] {url}  "
+        f"[dim]depth={depth}  browser={browser}  max_links={max_links}[/dim]"
+    )
+    console.print()
 
     result = asyncio.run(extractor.extract(url))
 
     if output_format == "json":
         formatted = result.to_json(indent=2)
     elif output_format == "tree":
-        formatted = _format_tree(result)
+        formatted = _format_tree_plain(result)
     else:
         formatted = result.to_markdown()
 
@@ -145,20 +172,33 @@ def main(
 
             path.mkdir(parents=True, exist_ok=True)
             write_tree_to_directory(result, path, output_format)
-            click.echo(f"\nWritten to {path}/ ({result.total_nodes} files)")
+            console.print(f"\nWritten to {path}/ ({result.total_nodes} files)")
         else:
             path.write_text(formatted, encoding="utf-8")
-            click.echo(f"\nWritten to {path} ({len(formatted):,} chars)")
+            console.print(f"\nWritten to {path} ({len(formatted):,} chars)")
+    elif output_format == "tree":
+        console.print(_format_rich_tree(result))
     else:
-        click.echo(formatted)
+        console.print(formatted)
 
-    click.echo("\n---")
-    click.echo(f"Total nodes: {result.total_nodes}")
-    click.echo(f"Total content: {result.total_content_length:,} chars")
+    _print_summary_table(result, output_format, depth)
 
 
-def _format_tree(node: ContentNode, indent: int = 0) -> str:
-    """Format a ContentNode tree as an indented tree view."""
+def _print_summary_table(result: ContentNode, output_format: str, depth: int) -> None:
+    """Print a Rich summary table after extraction."""
+    console.print()
+    table = Table(title="Extraction Summary", show_header=False, border_style="dim")
+    table.add_column("Metric", style="bold")
+    table.add_column("Value")
+    table.add_row("Total nodes", str(result.total_nodes))
+    table.add_row("Total content", f"{result.total_content_length:,} chars")
+    table.add_row("Max depth", str(depth))
+    table.add_row("Format", output_format)
+    console.print(table)
+
+
+def _format_tree_plain(node: ContentNode, indent: int = 0) -> str:
+    """Format a ContentNode tree as plain text (for file output)."""
     lines = []
     prefix = "  " * indent
     connector = "\u251c\u2500\u2500 " if indent > 0 else ""
@@ -182,6 +222,35 @@ def _format_tree(node: ContentNode, indent: int = 0) -> str:
         lines.append(f"{prefix}    Error: {node.error}")
 
     for child in node.children:
-        lines.append(_format_tree(child, indent + 1))
+        lines.append(_format_tree_plain(child, indent + 1))
 
     return "\n".join(lines)
+
+
+def _format_rich_tree(node: ContentNode) -> Tree:
+    """Format a ContentNode tree using Rich Tree for colored output."""
+    status = "[green]\u2713[/green]" if node.content else "[red]\u2717[/red]"
+    label = (
+        f"{status} [bold]{node.content_type.value}[/bold]: "
+        f"{node.title or node.url}"
+    )
+    tree = Tree(label)
+
+    tree.add(f"[dim]URL:[/dim] {node.url}")
+
+    if node.content:
+        preview = node.content[:80].replace("\n", " ")
+        if len(node.content) > 80:
+            preview += "..."
+        tree.add(f"[dim]Content:[/dim] {preview}")
+    else:
+        tree.add("[dim]Content:[/dim] [italic]empty[/italic]")
+
+    if node.error:
+        tree.add(f"[red]Error:[/red] {node.error}")
+
+    for child in node.children:
+        child_tree = _format_rich_tree(child)
+        tree.children.append(child_tree)
+
+    return tree

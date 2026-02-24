@@ -90,6 +90,14 @@ uv run pytest -m network -v   # opt-in
 
 ---
 
+### Structured logging with Rich
+
+Replaced `logging.basicConfig` with Rich's `RichHandler` for color-coded log levels, formatted tracebacks, and cleaner CLI output. Replaced `click.echo()` with `rich.console.Console` for styled headers, `rich.tree.Tree` for the `--format tree` view, and `rich.table.Table` for the extraction summary. Added `--quiet` / `-q` flag (mutually exclusive with `--verbose`).
+
+**Completed:** commit on `main` branch.
+
+---
+
 ### GitHub extractor
 
 Add `GitHubExtractor` for github.com URLs. Use the GitHub REST API to extract README content, issue/PR bodies, and discussion threads.
