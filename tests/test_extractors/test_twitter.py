@@ -82,7 +82,7 @@ class TestTwitterExtract:
             url="https://cdn.syndication.twimg.com/tweet-result?id=789&token=0",
             status_code=500,
         )
-        extractor = TwitterExtractor(config=ExtractorConfig(timeout=10))
+        extractor = TwitterExtractor(config=ExtractorConfig(timeout=10, max_retries=0))
         result = await extractor.extract("https://x.com/user/status/789")
 
         assert "Could not extract" in result.content

@@ -157,7 +157,7 @@ class TestGitHubExtract:
             status_code=404,
         )
 
-        extractor = GitHubExtractor(config=ExtractorConfig(timeout=10))
+        extractor = GitHubExtractor(config=ExtractorConfig(timeout=10, max_retries=0))
         result = await extractor.extract("https://github.com/testowner/test-repo")
 
         assert "Could not extract" in result.content

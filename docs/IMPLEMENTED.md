@@ -103,3 +103,11 @@ Replaced `logging.basicConfig` with Rich's `RichHandler` for color-coded log lev
 Add `GitHubExtractor` for github.com URLs. Use the GitHub REST API to extract README content, issue/PR bodies, and discussion threads.
 
 **Completed:** commit `9364234` — `GitHubExtractor` and `ArXivExtractor` added together.
+
+---
+
+### Retry logic for transient failures
+
+Added configurable retry with exponential backoff at the HTTP transport layer via a custom `RetryTransport` wrapping `httpx.AsyncHTTPTransport`. All extractors benefit automatically with zero code changes. Retries on `ConnectError`, `ConnectTimeout`, `ReadTimeout`, and status codes 429/500/502/503/504. Honors `Retry-After` header on 429. Configurable via `ExtractorConfig.max_retries` (default 2) and `ExtractorConfig.retry_backoff_factor` (default 0.5). CLI flags: `--retries` and `--retry-backoff`.
+
+**Completed:** `feat/retry-logic` branch.

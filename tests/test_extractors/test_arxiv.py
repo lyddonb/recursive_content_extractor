@@ -105,7 +105,7 @@ class TestArXivExtract:
 </html>""",
         )
 
-        extractor = ArXivExtractor(config=ExtractorConfig(timeout=10))
+        extractor = ArXivExtractor(config=ExtractorConfig(timeout=10, max_retries=0))
         result = await extractor.extract("https://arxiv.org/abs/2301.07041")
 
         assert result.content_type == ContentType.ARXIV
@@ -126,7 +126,7 @@ class TestArXivExtract:
             status_code=500,
         )
 
-        extractor = ArXivExtractor(config=ExtractorConfig(timeout=10))
+        extractor = ArXivExtractor(config=ExtractorConfig(timeout=10, max_retries=0))
         result = await extractor.extract("https://arxiv.org/abs/2301.07041")
 
         assert "Could not extract" in result.content

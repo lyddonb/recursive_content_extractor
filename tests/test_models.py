@@ -178,3 +178,24 @@ class TestExtractorConfig:
     def test_zero_rate_limit_allowed(self):
         config = ExtractorConfig(rate_limit_delay=0)
         assert config.rate_limit_delay == 0
+
+    def test_retry_defaults(self):
+        config = ExtractorConfig()
+        assert config.max_retries == 2
+        assert config.retry_backoff_factor == 0.5
+
+    def test_negative_max_retries_raises(self):
+        with pytest.raises(ValueError, match="max_retries"):
+            ExtractorConfig(max_retries=-1)
+
+    def test_negative_retry_backoff_raises(self):
+        with pytest.raises(ValueError, match="retry_backoff_factor"):
+            ExtractorConfig(retry_backoff_factor=-0.1)
+
+    def test_zero_retries_allowed(self):
+        config = ExtractorConfig(max_retries=0)
+        assert config.max_retries == 0
+
+    def test_zero_retry_backoff_allowed(self):
+        config = ExtractorConfig(retry_backoff_factor=0)
+        assert config.retry_backoff_factor == 0

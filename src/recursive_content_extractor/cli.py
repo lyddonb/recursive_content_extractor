@@ -94,6 +94,18 @@ def setup_logging(verbose: bool, quiet: bool) -> None:
     help="URL patterns to exclude (glob syntax, repeatable)",
 )
 @click.option(
+    "--retries",
+    default=2,
+    type=int,
+    help="Number of retries for transient HTTP failures (0 to disable)",
+)
+@click.option(
+    "--retry-backoff",
+    default=0.5,
+    type=float,
+    help="Backoff factor for retries (delay = factor * 2^attempt)",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -117,6 +129,8 @@ def main(
     delay: float,
     same_domain: bool,
     exclude: tuple[str, ...],
+    retries: int,
+    retry_backoff: float,
     verbose: bool,
     quiet: bool,
 ):
@@ -145,6 +159,8 @@ def main(
         rate_limit_delay=delay,
         follow_same_domain_only=same_domain,
         exclude_patterns=list(exclude),
+        max_retries=retries,
+        retry_backoff_factor=retry_backoff,
     )
 
     extractor = RecursiveExtractor(config=config)

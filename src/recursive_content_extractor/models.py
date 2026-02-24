@@ -141,6 +141,8 @@ class ExtractorConfig:
     follow_same_domain_only: bool = False
     extract_embedded_urls: bool = True
     max_concurrent_requests: int = 5
+    max_retries: int = 2
+    retry_backoff_factor: float = 0.5
 
     def __post_init__(self):
         if self.depth < 0:
@@ -155,3 +157,9 @@ class ExtractorConfig:
             )
         if self.rate_limit_delay < 0:
             raise ValueError(f"rate_limit_delay must be >= 0, got {self.rate_limit_delay}")
+        if self.max_retries < 0:
+            raise ValueError(f"max_retries must be >= 0, got {self.max_retries}")
+        if self.retry_backoff_factor < 0:
+            raise ValueError(
+                f"retry_backoff_factor must be >= 0, got {self.retry_backoff_factor}"
+            )
