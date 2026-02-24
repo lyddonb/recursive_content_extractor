@@ -73,3 +73,25 @@ uv run mypy src/                       # Success: no issues found in 12 source f
 | 3 | **Pre-commit hooks** -- run `uv run pre-commit install` once locally | One-time local setup |
 | 4 | **Playwright browsers** -- run `uv run playwright install chromium` if needed | Optional ~150MB download |
 | 5 | **Rename repo directory** -- `recurisve_content_extractor` -> `recursive_content_extractor` (typo) | Cosmetic, not blocking |
+
+---
+
+## Completed Roadmap Items
+
+### Integration tests with real network calls
+
+Add a small `tests/test_integration.py` that makes real HTTP calls (marked with `@pytest.mark.network` so they're skipped by default). Validates the full pipeline actually works against live URLs like `https://example.com`.
+
+```bash
+uv run pytest -m network -v   # opt-in
+```
+
+**Completed:** `feat/integration-tests` branch — `tests/test_integration.py` with 5 tests (article, YouTube, arXiv, GitHub, recursive depth).
+
+---
+
+### GitHub extractor
+
+Add `GitHubExtractor` for github.com URLs. Use the GitHub REST API to extract README content, issue/PR bodies, and discussion threads.
+
+**Completed:** commit `9364234` — `GitHubExtractor` and `ArXivExtractor` added together.
