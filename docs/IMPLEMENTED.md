@@ -111,3 +111,11 @@ Add `GitHubExtractor` for github.com URLs. Use the GitHub REST API to extract RE
 Added configurable retry with exponential backoff at the HTTP transport layer via a custom `RetryTransport` wrapping `httpx.AsyncHTTPTransport`. All extractors benefit automatically with zero code changes. Retries on `ConnectError`, `ConnectTimeout`, `ReadTimeout`, and status codes 429/500/502/503/504. Honors `Retry-After` header on 429. Configurable via `ExtractorConfig.max_retries` (default 2) and `ExtractorConfig.retry_backoff_factor` (default 0.5). CLI flags: `--retries` and `--retry-backoff`.
 
 **Completed:** `feat/retry-logic` branch.
+
+---
+
+### Async context manager for RecursiveExtractor
+
+Added `__aenter__`/`__aexit__` and an explicit `close()` method to `RecursiveExtractor` so resources (HTTP clients, browser) are guaranteed to be cleaned up via `async with RecursiveExtractor(...) as ext:`. The existing `finally` block in `extract()` is preserved for backward compatibility with non-context-manager usage. Updated the convenience `extract_url()` function to use the context manager pattern.
+
+**Completed:** `feat/async-context-manager` branch.

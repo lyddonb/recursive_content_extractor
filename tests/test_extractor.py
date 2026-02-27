@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from recursive_content_extractor.extractor import RecursiveExtractor
@@ -222,3 +224,61 @@ class TestRecursiveExtractor:
         extractor = RecursiveExtractor(config=config)
         assert extractor._should_follow("https://bad.com/page") is False
         assert extractor._should_follow("https://good.com/page") is True
+
+
+class TestAsyncContextManager:
+    @pytest.mark.asyncio
+    async def test_async_context_manager(self):
+        """Verify async with works and returns the correct result."""
+        config = ExtractorConfig(depth=0, rate_limit_delay=0)
+        async with RecursiveExtractor(config=config) as extractor:
+            assert isinstance(extractor, RecursiveExtractor)
+            mock = MockExtractor(
+                config=config,
+                results={
+                    "https://example.com": ExtractionResult(
+                        url="https://example.com",
+                        title="Test",
+                        content="Test content",
+                        content_type=ContentType.ARTICLE,
+                        links=[],
+                    ),
+                },
+            )
+            extractor.classifier.register(type(mock), priority=1000)
+            extractor.classifier._instances[type(mock)] = mock
+
+            result = await extractor.extract("https://example.com")
+            assert result.title == "Test"
+
+    @pytest.mark.asyncio
+    async def test_close_is_idempotent(self):
+        """Calling close() twice doesn't raise."""
+        extractor = RecursiveExtractor(depth=0)
+        await extractor.close()
+        await extractor.close()  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_context_manager_calls_close(self):
+        """Verify classifier.close() is called on normal exit."""
+        config = ExtractorConfig(depth=0)
+        extractor = RecursiveExtractor(config=config)
+        extractor.classifier.close = AsyncMock()
+
+        async with extractor:
+            pass
+
+        extractor.classifier.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_context_manager_calls_close_on_exception(self):
+        """Verify cleanup happens even when an exception is raised."""
+        config = ExtractorConfig(depth=0)
+        extractor = RecursiveExtractor(config=config)
+        extractor.classifier.close = AsyncMock()
+
+        with pytest.raises(ValueError, match="boom"):
+            async with extractor:
+                raise ValueError("boom")
+
+        extractor.classifier.close.assert_called_once()

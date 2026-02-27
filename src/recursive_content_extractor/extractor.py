@@ -5,11 +5,9 @@ following embedded links up to a configurable depth, building a tree of
 ContentNode objects.
 
 Usage:
-    from recursive_content_extractor import RecursiveExtractor
-
-    extractor = RecursiveExtractor(depth=2)
-    result = await extractor.extract("https://example.com/article")
-    print(result.to_markdown())
+    async with RecursiveExtractor(depth=2) as extractor:
+        result = await extractor.extract("https://example.com/article")
+        print(result.to_markdown())
 """
 
 from __future__ import annotations
@@ -52,6 +50,16 @@ class RecursiveExtractor:
         """Register a custom extractor."""
         self.classifier.register(extractor_class, priority)
 
+    async def __aenter__(self) -> RecursiveExtractor:
+        return self
+
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """Close all extractor resources (HTTP clients, browser)."""
+        await self.classifier.close()
+
     async def extract(self, url: str) -> ContentNode:
         """Recursively extract content starting from the given URL."""
         self._visited.clear()
@@ -65,7 +73,7 @@ class RecursiveExtractor:
             )
             return root
         finally:
-            await self.classifier.close()
+            await self.close()
 
     async def _extract_recursive(self, url: str, depth: int) -> ContentNode:
         """Internal recursive extraction method."""
@@ -189,5 +197,5 @@ async def extract_url(
 ) -> ContentNode:
     """Quick extraction function."""
     config = ExtractorConfig(depth=depth, use_browser=use_browser)
-    extractor = RecursiveExtractor(config=config)
-    return await extractor.extract(url)
+    async with RecursiveExtractor(config=config) as extractor:
+        return await extractor.extract(url)
