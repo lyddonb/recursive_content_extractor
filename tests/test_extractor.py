@@ -191,6 +191,63 @@ class TestRecursiveExtractor:
         assert result.content_type == ContentType.ERROR
         assert result.error is not None
 
+    @pytest.mark.asyncio
+    async def test_fetches_original_url_and_dedups_by_normalized_url(self):
+        config = ExtractorConfig(depth=1, rate_limit_delay=0)
+        extractor = RecursiveExtractor(config=config)
+        root_url = "http://www.example.com/page?b=2&a=1"
+        mock = MockExtractor(
+            config=config,
+            results={
+                root_url: ExtractionResult(
+                    url=root_url,
+                    title="Root",
+                    content="Root content",
+                    content_type=ContentType.ARTICLE,
+                    links=["https://example.com/page?a=1&b=2"],
+                ),
+            },
+        )
+        fetched: list[str] = []
+        original_extract = mock.extract
+
+        async def recording_extract(url: str) -> ExtractionResult:
+            fetched.append(url)
+            return await original_extract(url)
+
+        mock.extract = recording_extract  # type: ignore[method-assign]
+        extractor.classifier.register(type(mock), priority=1000)
+        extractor.classifier._instances[type(mock)] = mock
+
+        result = await extractor.extract(root_url)
+
+        assert fetched == [root_url]
+        assert result.url == root_url
+        assert result.title == "Root"
+        assert len(result.children) == 0
+
+    @pytest.mark.asyncio
+    async def test_extractor_error_result_sets_node_error(self):
+        config = ExtractorConfig(depth=0, rate_limit_delay=0)
+        extractor = RecursiveExtractor(config=config)
+        mock = MockExtractor(
+            config=config,
+            results={
+                "https://example.com": ExtractionResult(
+                    url="https://example.com",
+                    content_type=ContentType.ERROR,
+                    metadata={"error": "connection refused"},
+                ),
+            },
+        )
+        extractor.classifier.register(type(mock), priority=1000)
+        extractor.classifier._instances[type(mock)] = mock
+
+        result = await extractor.extract("https://example.com")
+
+        assert result.content_type == ContentType.ERROR
+        assert result.error == "connection refused"
+
     def test_register_extractor(self):
         extractor = RecursiveExtractor(depth=0)
 

@@ -79,9 +79,11 @@ class RecursiveExtractor:
 
     async def _extract_recursive(self, url: str, depth: int) -> ContentNode:
         """Internal recursive extraction method."""
-        url = self._normalize_url(url)
+        # The normalized form is only a dedup key; fetch the URL as given, since
+        # normalizing rewrites http to https and strips www.
+        key = self._normalize_url(url)
 
-        if url in self._visited:
+        if key in self._visited:
             logger.debug(f"[depth={depth}] Skipping already visited: {url}")
             return ContentNode(
                 url=url,
@@ -90,7 +92,7 @@ class RecursiveExtractor:
                 depth=depth,
             )
 
-        self._visited.add(url)
+        self._visited.add(key)
 
         if not self._should_follow(url):
             logger.debug(f"[depth={depth}] URL excluded by pattern: {url}")
@@ -124,6 +126,7 @@ class RecursiveExtractor:
             content_type=result.content_type,
             metadata=result.metadata,
             depth=depth,
+            error=result.metadata.get("error"),
         )
 
         if depth < self.config.depth and result.links:
