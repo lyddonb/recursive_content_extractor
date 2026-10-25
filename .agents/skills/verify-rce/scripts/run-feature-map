@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Run every recipe in the verify-rce feature map, in order, and report each check.
+
+Usage: run-feature-map [--run ID] [--only PREFIX] [--offline]
+
+Starts the fixture site for the run id, runs each `control-rce run|check|outline` command found
+on the sub-feature lines of features/*.md, prints PASS or FAIL per check, then cleans up (evidence
+is kept). --offline skips LIVE-* recipes that need the network. Exits 1 if any check fails.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+SKILL = Path(__file__).resolve().parent.parent
+CONTROL = SKILL / "scripts" / "control-rce"
+FEATURE_FILES = ["recursion", "link-filters", "output", "live-extractors"]
+SUB_FEATURE = re.compile(r"^- `([A-Z0-9-]+)`")
+COMMAND = re.compile(r"`control-rce ((?:run|check|outline) [^`]+)`")
+OFFLINE_OK = {"LIVE-PDF"}
+
+
+def recipes() -> list[tuple[str, str]]:
+    found = []
+    for name in FEATURE_FILES:
+        for line in (SKILL / "features" / f"{name}.md").read_text().splitlines():
+            match = SUB_FEATURE.match(line)
+            if match:
+                found.extend((match.group(1), cmd) for cmd in COMMAND.findall(line))
+    return found
+
+
+def control(args: str, run_id: str) -> subprocess.CompletedProcess[str]:
+    tokens = shlex.split(args)
+    n = 2 if tokens[0] == "site" else 1
+    argv = [str(CONTROL), *tokens[:n], "--run", run_id, *tokens[n:]]
+    return subprocess.run(argv, capture_output=True, text=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--run", default="feature-map", help="run id (default: feature-map)")
+    parser.add_argument(
+        "--only", default="", help="only sub-features whose id starts with this, e.g. OUT"
+    )
+    parser.add_argument(
+        "--offline", action="store_true", help="skip LIVE-* recipes except LIVE-PDF"
+    )
+    args = parser.parse_args()
+
+    selected = [
+        (fid, cmd)
+        for fid, cmd in recipes()
+        if fid.startswith(args.only)
+        and not (args.offline and fid.startswith("LIVE-") and fid not in OFFLINE_OK)
+    ]
+    if not selected:
+        sys.exit(f"run-feature-map: no recipes match --only {args.only!r}")
+
+    start = control("site start", args.run)
+    if start.returncode != 0:
+        sys.exit(f"run-feature-map: site start failed\n{start.stderr}")
+
+    failed = []
+    try:
+        for fid, cmd in selected:
+            proc = control(cmd, args.run)
+            if cmd.startswith("check"):
+                ok = proc.returncode == 0
+                print(f"{'PASS' if ok else 'FAIL'}  {fid}")
+                if not ok:
+                    failed.append(fid)
+                    print("      " + (proc.stdout + proc.stderr).strip().replace("\n", "\n      "))
+            elif proc.returncode != 0 and cmd.startswith("outline"):
+                print(f"WARN  {fid}: outline exited {proc.returncode}: {proc.stderr.strip()}")
+    finally:
+        control("cleanup", args.run)
+
+    checks = sum(1 for _, cmd in selected if cmd.startswith("check"))
+    print(
+        f"{checks - len(failed)}/{checks} checks passed; evidence in .verify/{args.run}/evidence/"
+    )
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()
