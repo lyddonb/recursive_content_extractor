@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
+from youtube_transcript_api import YouTubeTranscriptApi
 
 from recursive_content_extractor.extractors.youtube import (
     YouTubeExtractor,
@@ -55,6 +58,16 @@ class TestYouTubeCanHandle:
         assert YouTubeExtractor.priority() == 50
 
 
+@pytest.fixture(autouse=True)
+def stub_transcript_api(monkeypatch):
+    """Keep tests off the network: the transcript library uses requests, which httpx_mock can't see."""
+    snippets = [
+        SimpleNamespace(start=0.0, text="Never gonna"),
+        SimpleNamespace(start=65.0, text="give you up"),
+    ]
+    monkeypatch.setattr(YouTubeTranscriptApi, "fetch", lambda self, video_id: snippets)
+
+
 class TestYouTubeExtract:
     @pytest.mark.asyncio
     async def test_extracts_with_oembed(self, httpx_mock, oembed_response):
@@ -68,6 +81,7 @@ class TestYouTubeExtract:
         assert result.content_type == ContentType.YOUTUBE
         assert result.title == "Test Video Title"
         assert "Test Channel" in result.content
+        assert "[0:00] Never gonna\n[1:05] give you up" in result.content
         assert result.metadata["video_id"] == "dQw4w9WgXcQ"
         await extractor.close()
 
