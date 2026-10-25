@@ -217,7 +217,7 @@ class GitHubExtractor(BaseExtractor):
                 title=f"{owner}/{repo}" + (f" - {description}" if description else ""),
                 content=content[: self.config.max_content_length],
                 content_type=ContentType.GITHUB,
-                links=links[: self.config.max_links_per_page],
+                links=links,
                 metadata={
                     "owner": owner,
                     "repo": repo,
@@ -253,7 +253,7 @@ class GitHubExtractor(BaseExtractor):
                         title=f"{owner}/{repo}",
                         content=f"# {owner}/{repo}\n\n{readme}"[: self.config.max_content_length],
                         content_type=ContentType.GITHUB,
-                        links=links[: self.config.max_links_per_page],
+                        links=links,
                         metadata={
                             "owner": owner,
                             "repo": repo,

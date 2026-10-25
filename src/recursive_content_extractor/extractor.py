@@ -130,11 +130,7 @@ class RecursiveExtractor:
         )
 
         if depth < self.config.depth and result.links:
-            links_to_follow = [
-                link
-                for link in result.links
-                if self._normalize_url(link) not in self._visited and self._should_follow(link)
-            ]
+            links_to_follow = self._select_links(result.links)
 
             if links_to_follow:
                 logger.info(f"[depth={depth}] Following {len(links_to_follow)} links from {url}")
@@ -182,6 +178,16 @@ class RecursiveExtractor:
             result = result.rstrip("/")
 
         return result
+
+    def _select_links(self, links: list[str]) -> list[str]:
+        """Pick the first max_links_per_page new, allowed links, in the order given."""
+        selected: dict[str, str] = {}
+        for link in links:
+            key = self._normalize_url(link)
+            if key in self._visited or key in selected or not self._should_follow(link):
+                continue
+            selected[key] = link
+        return list(selected.values())[: self.config.max_links_per_page]
 
     def _should_follow(self, url: str) -> bool:
         """Check if a URL matches include/exclude patterns."""

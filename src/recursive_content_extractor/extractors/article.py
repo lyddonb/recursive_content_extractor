@@ -167,35 +167,36 @@ class ArticleExtractor(BaseExtractor):
         - URLs in data-* attributes
         """
         soup = BeautifulSoup(html, "lxml")
-        found_urls: set[str] = set()
+        # A dict keeps first-seen page order; a set would reorder links per process.
+        found_urls: dict[str, None] = {}
 
         # 1. Standard <a> tags
         for a in soup.find_all("a", href=True):
             href = str(a["href"])
             if href and not href.startswith(("#", "javascript:", "mailto:")):
                 absolute = urljoin(base_url, href)
-                found_urls.add(absolute)
+                found_urls[absolute] = None
 
         # 2. Iframes (YouTube embeds, etc.)
         for iframe in soup.find_all("iframe", src=True):
             src = str(iframe["src"])
             absolute = urljoin(base_url, src)
-            found_urls.add(absolute)
+            found_urls[absolute] = None
 
         # 3. Embedded tweet blockquotes (Twitter widget format)
         for bq in soup.find_all("blockquote", class_="twitter-tweet"):
             for a in bq.find_all("a", href=True):
                 href = str(a["href"])
                 if "twitter.com" in href or "x.com" in href:
-                    found_urls.add(href)
+                    found_urls[href] = None
 
         # 4. data-* attributes that might contain URLs
         for tag in soup.find_all(attrs={"data-src": True}):
-            found_urls.add(urljoin(base_url, str(tag["data-src"])))
+            found_urls[urljoin(base_url, str(tag["data-src"]))] = None
         for tag in soup.find_all(attrs={"data-url": True}):
-            found_urls.add(urljoin(base_url, str(tag["data-url"])))
+            found_urls[urljoin(base_url, str(tag["data-url"]))] = None
         for tag in soup.find_all(attrs={"data-href": True}):
-            found_urls.add(urljoin(base_url, str(tag["data-href"])))
+            found_urls[urljoin(base_url, str(tag["data-href"]))] = None
 
         # 5. Scan raw HTML for embedded X/Twitter and YouTube URLs
         #    (catches dynamically injected embeds)
@@ -205,13 +206,12 @@ class ArticleExtractor(BaseExtractor):
                     continue  # Skip generic -- too noisy
                 for match in pattern.finditer(html):
                     url = match.group(0).rstrip('",;)\\')
-                    found_urls.add(url)
+                    found_urls[url] = None
 
         # Filter and deduplicate
-        filtered = self._filter_links(found_urls, base_url)
-        return filtered[: self.config.max_links_per_page]
+        return self._filter_links(list(found_urls), base_url)
 
-    def _filter_links(self, urls: set[str], base_url: str) -> list[str]:
+    def _filter_links(self, urls: list[str], base_url: str) -> list[str]:
         """Filter extracted URLs to keep only interesting ones."""
         base_domain = urlparse(base_url).netloc
         interesting = []

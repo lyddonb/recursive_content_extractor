@@ -25,7 +25,7 @@ The maintained record of what an rce user can do and how to prove each thing wor
 
 - Run rce only through `control-rce run --name <label> -- <rce args>`, with `--delay 0 -q` against the fixture.
 - Use `-f json -o '{out}/result.json'` for anything you assert on, then `control-rce check last`.
-- Assert on the set of markers and types. Child order is not stable.
+- Assert on markers, types and counts. Children follow the order of links on the page.
 - Treat every command as literal. Keep the quotes around `{site}`, `{out}` and globs.
 
 ## Proof and skip reporting
