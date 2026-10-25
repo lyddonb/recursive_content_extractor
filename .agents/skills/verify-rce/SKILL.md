@@ -44,7 +44,7 @@ control-rce check last --has A --has DRAFT --lacks DEEP --children 5
 - `check last` asserts on the latest run's evidence and prints PASS, or FAIL with every reason; it exits 1 on failure. Markers drop the `MARKER-` prefix. See `control-rce check --help` for every assertion, including `--stdout-has` and `--file-exists` for runs without JSON output.
 - `outline last` prints the node tree (type, URL, marker, error) when a check fails and you need to see why.
 - Pass `--delay 0` against the fixture and `-q` to keep logs out of stdout.
-- Never assert on child order: it varies between runs. rce exits 0 even when the root URL fails, so check `--root-error`, not the exit code.
+- Children come back in page order, so `--children` counts and `--under` are stable. rce exits 0 even when the root URL fails, so check `--root-error`, not the exit code.
 
 The feature map in [features/README.md](features/README.md) has the recipe for each user-facing feature and the fixture page layout.
 

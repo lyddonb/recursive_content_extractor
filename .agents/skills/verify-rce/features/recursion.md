@@ -28,6 +28,6 @@ Preconditions: baseline; fixture site running. Each sub-feature is a `run` follo
 
 ## Gotchas
 
-- Child order changes between runs. Compare sets of markers.
+- Children follow the order of links on the page: `a.html`, `b.html`, `field-notes.pdf`, `drafts/unpublished.html`, then `c.html`.
 - At depth 2 the PDF links to `b.html`. `b.html` is already visited, so the PDF has no children.
 - Without `--delay 0`, each level waits one second.
