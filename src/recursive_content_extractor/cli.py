@@ -13,7 +13,7 @@ from rich.table import Table
 from rich.tree import Tree
 
 from recursive_content_extractor.extractor import RecursiveExtractor
-from recursive_content_extractor.models import ContentNode, ExtractorConfig
+from recursive_content_extractor.models import ContentNode, ContentType, ExtractorConfig
 
 console = Console()
 
@@ -198,6 +198,12 @@ def main(
         console.print(formatted)
 
     _print_summary_table(result, output_format, depth)
+
+    # Output is still written above so the error node can be inspected; only a
+    # failed root fails the run, since dead child links are normal in a crawl.
+    if result.content_type == ContentType.ERROR:
+        click.echo(f"Error: could not extract {url}: {result.error}", err=True)
+        raise click.exceptions.Exit(1)
 
 
 def _print_summary_table(result: ContentNode, output_format: str, depth: int) -> None:

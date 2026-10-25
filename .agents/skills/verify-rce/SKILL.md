@@ -40,11 +40,12 @@ control-rce run --name depth1 -- '{site}/index.html' -d 1 --delay 0 -q -f json -
 control-rce check last --has A --has DRAFT --lacks DEEP --children 5
 ```
 
-- `run` executes `uv run rce <args>`. `{site}` is the fixture base URL, `{other}` the same server as `localhost`, `{out}` this run's evidence folder. It prints `evidence_dir` and exits with rce's exit code.
+- `run` executes `uv run rce <args>`. `{site}` is the fixture base URL, `{other}` the same server as `localhost`, `{out}` this run's evidence folder. It prints `evidence_dir` and exits with rce's exit code, so a run that is meant to fail exits non-zero.
 - `check last` asserts on the latest run's evidence and prints PASS, or FAIL with every reason; it exits 1 on failure. Markers drop the `MARKER-` prefix. See `control-rce check --help` for every assertion, including `--stdout-has` and `--file-exists` for runs without JSON output.
 - `outline last` prints the node tree (type, URL, marker, error) when a check fails and you need to see why.
 - Pass `--delay 0` against the fixture and `-q` to keep logs out of stdout.
-- Children come back in page order, so `--children` counts and `--under` are stable. rce exits 0 even when the root URL fails, so check `--root-error`, not the exit code.
+- Children come back in page order, so `--children` counts and `--under` are stable.
+- rce exits 1 when the root URL fails and 0 otherwise, even when some child pages fail. Assert it with `--exit-code`.
 
 The feature map in [features/README.md](features/README.md) has the recipe for each user-facing feature and the fixture page layout.
 
