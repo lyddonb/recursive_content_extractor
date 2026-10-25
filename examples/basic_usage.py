@@ -44,9 +44,7 @@ async def example_twitter():
 
     config = ExtractorConfig(depth=1, max_links_per_page=5, rate_limit_delay=1.0)
     extractor = RecursiveExtractor(config=config)
-    result = await extractor.extract(
-        "https://x.com/karpathy/status/1886192184808149383"
-    )
+    result = await extractor.extract("https://x.com/karpathy/status/1886192184808149383")
 
     print(f"Root: {result.title}")
     print(f"Type: {result.content_type.value}")
@@ -136,11 +134,13 @@ async def main():
     ]
 
     if "--all" in sys.argv:
-        examples.extend([
-            ("Twitter extraction", example_twitter),
-            ("YouTube extraction", example_youtube),
-            ("Custom extractor", example_custom_extractor),
-        ])
+        examples.extend(
+            [
+                ("Twitter extraction", example_twitter),
+                ("YouTube extraction", example_youtube),
+                ("Custom extractor", example_custom_extractor),
+            ]
+        )
     else:
         print("Run with --all to include network-dependent examples\n")
 
