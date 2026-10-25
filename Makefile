@@ -1,4 +1,4 @@
-.PHONY: install test lint format typecheck check clean
+.PHONY: install test lint format format-check typecheck check clean
 
 install:
 	uv sync --extra dev
@@ -12,10 +12,13 @@ lint:
 format:
 	uv run ruff format src/ tests/
 
+format-check:
+	uv run ruff format --check src/ tests/
+
 typecheck:
 	uv run mypy src/
 
-check: lint typecheck test
+check: lint format-check typecheck test
 	@echo "All checks passed!"
 
 clean:

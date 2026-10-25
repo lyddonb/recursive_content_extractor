@@ -68,11 +68,11 @@ uv run mypy src/                       # Success: no issues found in 12 source f
 
 | # | Item | Why |
 |---|------|-----|
-| 1 | **LICENSE file** -- add MIT LICENSE with copyright holder name | Legal |
+| 1 | ~~**LICENSE file**~~ -- done (MIT, 2026 Beau Lyddon) | Legal |
 | 2 | **GitHub branch protection** -- enable required status checks on `main` | Repo settings |
 | 3 | **Pre-commit hooks** -- run `uv run pre-commit install` once locally | One-time local setup |
 | 4 | **Playwright browsers** -- run `uv run playwright install chromium` if needed | Optional ~150MB download |
-| 5 | **Rename repo directory** -- `recurisve_content_extractor` -> `recursive_content_extractor` (typo) | Cosmetic, not blocking |
+| 5 | ~~**Rename repo directory**~~ -- done; rebuild `.venv` after any directory move (`rm -rf .venv && uv sync --extra dev`) | Cosmetic |
 
 ---
 

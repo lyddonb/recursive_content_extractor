@@ -177,7 +177,9 @@ class TwitterExtractor(BaseExtractor):
 
                     return ExtractionResult(
                         url=original_url,
-                        title=f"@{author_handle}: {article_title}" if article_title else f"@{author_handle} article",
+                        title=f"@{author_handle}: {article_title}"
+                        if article_title
+                        else f"@{author_handle} article",
                         content=content,
                         content_type=ContentType.ARTICLE,
                         links=article_links,

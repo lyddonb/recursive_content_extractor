@@ -17,10 +17,7 @@ class TestGitHubCanHandle:
 
     def test_handles_blob_url(self):
         assert (
-            GitHubExtractor.can_handle(
-                "https://github.com/owner/repo/blob/main/README.md"
-            )
-            is True
+            GitHubExtractor.can_handle("https://github.com/owner/repo/blob/main/README.md") is True
         )
 
     def test_handles_www_prefix(self):
@@ -132,9 +129,7 @@ class TestGitHubExtract:
         )
 
         extractor = GitHubExtractor(config=ExtractorConfig(timeout=10))
-        result = await extractor.extract(
-            "https://github.com/owner/repo/blob/main/src/main.py"
-        )
+        result = await extractor.extract("https://github.com/owner/repo/blob/main/src/main.py")
 
         assert result.content_type == ContentType.GITHUB
         assert 'print("hello world")' in result.content

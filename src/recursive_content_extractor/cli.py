@@ -246,10 +246,7 @@ def _format_tree_plain(node: ContentNode, indent: int = 0) -> str:
 def _format_rich_tree(node: ContentNode) -> Tree:
     """Format a ContentNode tree using Rich Tree for colored output."""
     status = "[green]\u2713[/green]" if node.content else "[red]\u2717[/red]"
-    label = (
-        f"{status} [bold]{node.content_type.value}[/bold]: "
-        f"{node.title or node.url}"
-    )
+    label = f"{status} [bold]{node.content_type.value}[/bold]: {node.title or node.url}"
     tree = Tree(label)
 
     tree.add(f"[dim]URL:[/dim] {node.url}")

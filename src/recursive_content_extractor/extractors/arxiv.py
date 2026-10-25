@@ -83,9 +83,7 @@ class ArXivExtractor(BaseExtractor):
             metadata={"paper_id": paper_id},
         )
 
-    async def _try_api(
-        self, original_url: str, paper_id: str
-    ) -> ExtractionResult | None:
+    async def _try_api(self, original_url: str, paper_id: str) -> ExtractionResult | None:
         """Use arXiv Atom API for structured metadata."""
         client = await self._get_client()
 
@@ -138,18 +136,12 @@ class ArXivExtractor(BaseExtractor):
             # Journal ref
             journal_el = entry.find(f"{_ARXIV_NS}journal_ref")
             journal_ref = (
-                journal_el.text.strip()
-                if journal_el is not None and journal_el.text
-                else ""
+                journal_el.text.strip() if journal_el is not None and journal_el.text else ""
             )
 
             # Comment
             comment_el = entry.find(f"{_ARXIV_NS}comment")
-            comment = (
-                comment_el.text.strip()
-                if comment_el is not None and comment_el.text
-                else ""
-            )
+            comment = comment_el.text.strip() if comment_el is not None and comment_el.text else ""
 
             # PDF link
             pdf_url = ""
@@ -214,9 +206,7 @@ class ArXivExtractor(BaseExtractor):
             logger.debug(f"arXiv API extraction failed: {e}")
             return None
 
-    async def _try_html(
-        self, original_url: str, paper_id: str
-    ) -> ExtractionResult | None:
+    async def _try_html(self, original_url: str, paper_id: str) -> ExtractionResult | None:
         """Scrape the arXiv abstract page with BeautifulSoup."""
         from bs4 import BeautifulSoup
 
