@@ -33,3 +33,7 @@ Thumbs.db
 
 # Verification runs (control-rce)
 .verify/
+
+# Claude Code personal settings and runtime state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
