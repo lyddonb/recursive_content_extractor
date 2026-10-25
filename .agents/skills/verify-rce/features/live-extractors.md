@@ -28,5 +28,5 @@ Preconditions: baseline. Network for everything but `LIVE-PDF` (`doctor` shows `
 ## Gotchas
 
 - These hit third-party services that rate-limit. GitHub falls back to raw README content when rate-limited, so a `github` node with a thinner title is still a pass. A 429 or empty content is "not verified", not "failed", unless the change touched that extractor.
-- YouTube transcripts depend on `youtube-transcript-api`. `doctor` shows `youtube_extra`.
+- YouTube transcripts depend on `youtube-transcript-api`. `doctor` shows `youtube_extra`. YouTube blocks IPs that make many requests: then `LIVE-YT` fails `--root-min-chars` with about 120 chars of metadata and no transcript. That's "not verified" (blocked), not a regression. Confirm with `uv run python -c "from youtube_transcript_api import YouTubeTranscriptApi as Y; Y().fetch('dQw4w9WgXcQ')"`, which raises `IpBlocked`.
 - X uses public FxTwitter and syndication APIs. Long threads and X Articles need `--browser`, which isn't mapped yet.

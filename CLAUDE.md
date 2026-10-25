@@ -7,6 +7,7 @@ Use the `beau-mode` skill for any non-trivial task. It picks the playbook, the p
 - Plans live outside the repo (scratch or notes) unless a multi-day effort needs `docs/plans/<slug>.md`, per beau-mode's Multi-phase plan playbook.
 - Turn a repeated correction into a check or script with the `correct` skill, or a skill edit with `reflect`. Don't keep a lessons file.
 - `main` is protected. Work on a branch and merge through a PR.
+- Prove rce changes with the `verify-rce` skill. If `.agents/skills/verify-rce/scripts/control-rce map-age` says the feature map is stale (more than a day old), run maintain-verification-skill before your first code change. Claude Code's SessionStart hook does this check for you.
 
 ## Project Overview
 

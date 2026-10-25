@@ -304,6 +304,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             else "recorded but not answering; run: control-rce site stop && control-rce site start",
         }
 
+    hours, source = map_age_hours()
+    checks["feature_map"] = {
+        "ok": hours is not None and hours <= MAX_MAP_AGE_HOURS,
+        "detail": f"maintained {describe_age(hours)} ({source})"
+        + (
+            ""
+            if hours is not None and hours <= MAX_MAP_AGE_HOURS
+            else "; run maintain-verification-skill"
+        ),
+        "optional": True,
+    }
+
     if not args.offline:
         net = answers("https://example.com/")
         checks["network"] = {
@@ -484,6 +496,89 @@ def cmd_outline(args: argparse.Namespace) -> None:
         print(f"{'  ' * row['level']}- {row['type']:<8} {row['url']}  {extra}{err}")
 
 
+MAINTAINED_STAMP = REPO / ".verify" / "maintained-at"
+MAX_MAP_AGE_HOURS = 24
+
+
+def map_last_maintained() -> tuple[float | None, str]:
+    """Latest of the local maintain-pass stamp and the last commit touching this skill."""
+    candidates = []
+    if MAINTAINED_STAMP.exists():
+        candidates.append(
+            (float(MAINTAINED_STAMP.read_text().split()[0]), "maintain pass on this machine")
+        )
+    log = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(REPO),
+            "log",
+            "-1",
+            "--format=%ct",
+            "--",
+            str(SKILL_DIR.relative_to(REPO)),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if log.returncode == 0 and log.stdout.strip():
+        candidates.append((float(log.stdout.strip()), "last commit to the skill"))
+    if not candidates:
+        return None, "never"
+    return max(candidates)
+
+
+def map_age_hours() -> tuple[float | None, str]:
+    when, source = map_last_maintained()
+    return (None if when is None else (time.time() - when) / 3600), source
+
+
+def describe_age(hours: float | None) -> str:
+    if hours is None:
+        return "never maintained"
+    return f"{hours:.0f}h ago" if hours < 48 else f"{hours / 24:.0f} days ago"
+
+
+def cmd_map_age(args: argparse.Namespace) -> None:
+    hours, source = map_age_hours()
+    stale = hours is None or hours > args.max_age_hours
+    if args.hook:
+        if stale:
+            message = (
+                f"The verify-rce feature map was last maintained {describe_age(hours)} ({source}), "
+                f"over the {args.max_age_hours}h limit. Before your first code change in this session, "
+                "run the maintain-verification-skill skill on .agents/skills/verify-rce. "
+                "When the pass ends clean or changed, run `.agents/skills/verify-rce/scripts/control-rce maintained --outcome <clean|changed>`."
+            )
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "SessionStart",
+                            "additionalContext": message,
+                        }
+                    }
+                )
+            )
+        return
+    emit(
+        {
+            "stale": stale,
+            "age": describe_age(hours),
+            "source": source,
+            "max_age_hours": args.max_age_hours,
+        },
+        args.json,
+    )
+    sys.exit(1 if stale else 0)
+
+
+def cmd_maintained(args: argparse.Namespace) -> None:
+    MAINTAINED_STAMP.parent.mkdir(parents=True, exist_ok=True)
+    MAINTAINED_STAMP.write_text(f"{time.time()} {args.outcome}\n")
+    emit({"maintained": time.strftime("%Y-%m-%d %H:%M:%S"), "outcome": args.outcome}, args.json)
+
+
 def cmd_cleanup(args: argparse.Namespace) -> None:
     site = stop_site(args.run)
     evidence = run_dir(args.run) / "evidence"
@@ -640,6 +735,30 @@ def main() -> None:
         help="PATH relative to the evidence dir must exist, e.g. tree/INDEX.md",
     )
     check.set_defaults(func=cmd_check)
+
+    map_age = sub.add_parser(
+        "map-age",
+        parents=[common],
+        help="report how long since the feature map was maintained; exits 1 when stale",
+        description="Age is the later of the last `control-rce maintained` on this machine and the last "
+        "commit touching the skill. --hook prints SessionStart hook JSON only when stale. "
+        "Example: control-rce map-age",
+    )
+    map_age.add_argument("--max-age-hours", type=float, default=MAX_MAP_AGE_HOURS)
+    map_age.add_argument(
+        "--hook", action="store_true", help="hook mode: JSON when stale, silent otherwise, exit 0"
+    )
+    map_age.set_defaults(func=cmd_map_age)
+
+    maintained = sub.add_parser(
+        "maintained",
+        parents=[common],
+        help="record a finished maintain-verification-skill pass",
+        description="Run at the end of a clean or changed pass, not a blocked one. "
+        "Example: control-rce maintained --outcome clean",
+    )
+    maintained.add_argument("--outcome", choices=["clean", "changed"], required=True)
+    maintained.set_defaults(func=cmd_maintained)
 
     sub.add_parser(
         "cleanup",

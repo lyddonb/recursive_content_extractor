@@ -71,6 +71,17 @@ Each `run` writes `.verify/<run>/evidence/NN-<name>/` with `command.txt`, `stdou
 
 Cleanup never kills a process it didn't start: it checks the recorded pid's command line first. Evidence and `site.log` stay under `.verify/<run>/` (git-ignored) until you delete them.
 
+## Maintenance
+
+The feature map is refreshed during normal work, not on a schedule. When it's more than a day old, run the maintain-verification-skill skill on this folder before your first code change in the session, then record the pass:
+
+```bash
+.agents/skills/verify-rce/scripts/control-rce map-age                          # exits 1 when stale
+.agents/skills/verify-rce/scripts/control-rce maintained --outcome clean       # or --outcome changed
+```
+
+Age is the later of the last `maintained` on this machine (stored in `.verify/maintained-at`) and the last commit touching this skill. Don't record a blocked pass. In Claude Code, a SessionStart hook in `.claude/settings.json` runs `map-age --hook` and tells you when the map is stale. `doctor` also shows the age.
+
 ## Changing the fixtures
 
 Pages are in `fixtures/site/`. `{other}` in a page is replaced with the `localhost` origin at start, and `field-notes.pdf` is generated at start (see `PDF_SCRIPT` in `control-rce`). Give every new page a unique `MARKER-*` phrase and add it to the layout in `features/README.md`.
