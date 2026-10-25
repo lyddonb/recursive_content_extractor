@@ -1,61 +1,16 @@
 # CLAUDE.md
 
-## Workflow Orchestration
+## Agent workflow
 
-### 1. Plan Node Default
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately - don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
+Use the `beau-mode` skill for any non-trivial task. It picks the playbook, the principles and the verification bar, so this file doesn't repeat them.
 
-### 2. Subagent Strategy
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One task per subagent for focused execution
-
-### 3. Self-Improvement Loop
-- After ANY correction from the user: update `tasks/lessons.md` with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until mistake rate drops
-- Review lessons at session start for relevant project
-
-### 4. Verification Before Done
-- Never mark a task complete without proving it works
-- Diff behavior between main and your changes when relevant
-- Ask yourself: "Would a staff engineer approve this?"
-- Run tests, check logs, demonstrate correctness
-
-### 5. Demand Elegance (Balanced)
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
-- Skip this for simple, obvious fixes - don't over-engineer
-- Challenge your own work before presenting it
-
-### 6. Autonomous Bug Fixing
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests - then resolve them
-- Zero context switching required from the user
-- Go fix failing CI tests without being told how
-
-## Task Management
-
-1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
-2. **Verify Plan**: Check in before starting implementation
-3. **Track Progress**: Mark items complete as you go
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to `tasks/todo.md`
-6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
-
-## Core Principles
-
-- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+- Plans live outside the repo (scratch or notes) unless a multi-day effort needs `docs/plans/<slug>.md`, per beau-mode's Multi-phase plan playbook.
+- Turn a repeated correction into a check or script with the `correct` skill, or a skill edit with `reflect`. Don't keep a lessons file.
+- `main` is protected. Work on a branch and merge through a PR.
 
 ## Project Overview
 
-**Recursive Content Extractor** (`rce`): A Python CLI/library that recursively extracts content from web pages, following embedded links (X/Twitter threads, YouTube videos, articles, PDFs) to build a content tree. Fully async (asyncio-based).
+**Recursive Content Extractor** (`rce`): A Python CLI/library that recursively extracts content from web pages, following embedded links (X/Twitter threads, YouTube videos, GitHub repos, arXiv papers, articles, PDFs) to build a content tree. Fully async (asyncio-based).
 
 ## Commands
 
@@ -69,21 +24,16 @@ uv run rce <URL> [--depth N] [--format markdown|json|tree] [--browser] [--output
 
 # Run checks
 make check        # runs lint + format check + typecheck + test
-make test         # uv run pytest -v
+make test         # uv run pytest -v (network tests: uv run pytest -m network)
 make lint         # uv run ruff check src/ tests/
+make format-check # uv run ruff format --check src/ tests/
 make format       # uv run ruff format src/ tests/
 make typecheck    # uv run mypy src/
 ```
 
-## Pre-commit Checklist
+## Pre-commit
 
-Before committing, ensure all pass:
-1. `uv run ruff check src/ tests/` -- no lint errors
-2. `uv run ruff format --check src/ tests/` -- formatting clean
-3. `uv run mypy src/` -- no type errors
-4. `uv run pytest` -- all tests pass
-
-Or just run `make check` to do all four.
+`make check` runs lint, format check, mypy and tests. The pre-commit hook (`uv run pre-commit install`, once per clone) runs ruff on every commit. After moving or renaming the checkout, rebuild the venv (`rm -rf .venv && uv sync --extra dev`): its scripts hard-code the old path.
 
 ## Architecture
 
@@ -96,6 +46,7 @@ src/recursive_content_extractor/
   classifier.py        # URLClassifier -- routes URLs to extractors by priority
   extractor.py         # RecursiveExtractor -- main orchestrator, recursion, cycle detection
   cli.py               # Click CLI entry point (rce command)
+  writer.py            # Directory output: one file per node plus index files (-o dir/)
   exceptions.py        # ExtractorError hierarchy
   extractors/
     __init__.py         # Re-exports BaseExtractor
@@ -103,6 +54,8 @@ src/recursive_content_extractor/
     article.py          # ArticleExtractor (trafilatura + BS4, priority -100, fallback)
     twitter.py          # TwitterExtractor (FxTwitter -> syndication -> Playwright, priority 50)
     youtube.py          # YouTubeExtractor (transcript-api -> page parsing, priority 50)
+    github.py           # GitHubExtractor (REST API -> raw README fallback, priority 45)
+    arxiv.py            # ArXivExtractor (Atom API -> HTML scraping, priority 45)
     pdf.py              # PDFExtractor (PyMuPDF, priority 40)
 tests/
 examples/
@@ -129,5 +82,7 @@ All imports use fully-qualified absolute paths: `from recursive_content_extracto
 |---|---|---|---|
 | `twitter.py` | `TwitterExtractor` | 50 | FxTwitter API -> syndication API -> Playwright (if `--browser`) |
 | `youtube.py` | `YouTubeExtractor` | 50 | youtube-transcript-api -> page HTML parsing; metadata via oEmbed |
+| `github.py` | `GitHubExtractor` | 45 | GitHub REST API for repo metadata and README -> raw.githubusercontent.com when rate-limited |
+| `arxiv.py` | `ArXivExtractor` | 45 | arXiv Atom API for paper metadata -> abstract page HTML scraping |
 | `pdf.py` | `PDFExtractor` | 40 | Downloads PDF, extracts text/links via PyMuPDF (fitz) |
 | `article.py` | `ArticleExtractor` | -100 | Fallback catch-all. trafilatura for content, BeautifulSoup for links |
