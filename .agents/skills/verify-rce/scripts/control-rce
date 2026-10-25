@@ -1,0 +1,669 @@
+#!/usr/bin/env python3
+"""Drive the rce CLI for verification: a local fixture site, evidence capture, doctor, cleanup.
+
+Run `control-rce <command> --help` for details. State and evidence live under
+<repo>/.verify/<run-id>/ (git-ignored). Set RCE_VERIFY_RUN or pass --run to isolate runs.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+SKILL_DIR = Path(__file__).resolve().parent.parent
+REPO = SKILL_DIR.parents[2]
+FIXTURES = SKILL_DIR / "fixtures" / "site"
+SITE_TOKEN = "{site}"
+OTHER_TOKEN = "{other}"
+
+PDF_SCRIPT = """
+import sys, fitz
+doc = fitz.open()
+page = doc.new_page()
+page.insert_text((72, 72), "Fixture PDF: Tidepool Field Notes", fontsize=16)
+page.insert_text((72, 110), "MARKER-PDF: anemones close when the tide drops.")
+page.insert_link({"kind": fitz.LINK_URI, "from": fitz.Rect(72, 130, 300, 145), "uri": sys.argv[2]})
+page.insert_text((72, 142), "Linked page: b.html")
+doc.save(sys.argv[1])
+"""
+
+
+def run_dir(run_id: str) -> Path:
+    return REPO / ".verify" / run_id
+
+
+def state_path(run_id: str) -> Path:
+    return run_dir(run_id) / "site.json"
+
+
+def load_state(run_id: str) -> dict | None:
+    path = state_path(run_id)
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def emit(data: dict, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(data, indent=2))
+    else:
+        for key, value in data.items():
+            print(f"{key}: {value}")
+
+
+def fail(message: str, code: int = 1) -> None:
+    print(f"control-rce: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def pid_command(pid: int) -> str:
+    out = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
+    return out.stdout.strip()
+
+
+def owns_server(state: dict) -> bool:
+    return state["site_dir"] in pid_command(state["pid"])
+
+
+def answers(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=1) as resp:
+            return resp.status == 200
+    except OSError:
+        return False
+
+
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def cmd_site_start(args: argparse.Namespace) -> None:
+    state = load_state(args.run)
+    if state and owns_server(state):
+        emit(state, args.json)
+        return
+
+    site_dir = run_dir(args.run) / "site"
+    shutil.rmtree(site_dir, ignore_errors=True)
+    shutil.copytree(FIXTURES, site_dir)
+    port = args.port or free_port()
+    base = f"http://127.0.0.1:{port}"
+    other = f"http://localhost:{port}"
+    for page in site_dir.rglob("*.html"):
+        page.write_text(page.read_text().replace(OTHER_TOKEN, other))
+
+    pdf = subprocess.run(
+        [
+            "uv",
+            "run",
+            "--project",
+            str(REPO),
+            "python",
+            "-c",
+            PDF_SCRIPT,
+            str(site_dir / "field-notes.pdf"),
+            f"{base}/b.html",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if pdf.returncode != 0:
+        fail(
+            f"could not generate the fixture PDF (needs the pdf extra: uv sync --extra dev)\n{pdf.stderr}"
+        )
+
+    log = (run_dir(args.run) / "site.log").open("w")
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "http.server",
+            str(port),
+            "--bind",
+            "127.0.0.1",
+            "--directory",
+            str(site_dir),
+        ],
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    for _ in range(50):
+        if answers(f"{base}/index.html"):
+            break
+        if proc.poll() is not None:
+            fail(
+                f"fixture server exited with {proc.returncode}; see {run_dir(args.run) / 'site.log'} "
+                f"(port {port} may be taken; pass --port)"
+            )
+        time.sleep(0.1)
+    else:
+        proc.terminate()
+        fail(f"fixture server on port {port} did not answer within 5s")
+
+    state = {
+        "run": args.run,
+        "pid": proc.pid,
+        "port": port,
+        "base_url": base,
+        "other_origin": other,
+        "site_dir": str(site_dir),
+    }
+    state_path(args.run).write_text(json.dumps(state, indent=2))
+    emit(state, args.json)
+
+
+def stop_site(run_id: str) -> str:
+    state = load_state(run_id)
+    if not state:
+        return "no site recorded for this run"
+    if owns_server(state):
+        os.kill(state["pid"], signal.SIGTERM)
+        result = f"stopped pid {state['pid']}"
+    else:
+        result = f"pid {state['pid']} is not this run's server; left it alone"
+    state_path(run_id).unlink()
+    shutil.rmtree(state["site_dir"], ignore_errors=True)
+    return result
+
+
+def cmd_site_stop(args: argparse.Namespace) -> None:
+    emit({"site": stop_site(args.run)}, args.json)
+
+
+def cmd_site_status(args: argparse.Namespace) -> None:
+    state = load_state(args.run)
+    if not state:
+        emit({"running": False}, args.json)
+        return
+    up = owns_server(state) and answers(f"{state['base_url']}/index.html")
+    emit({"running": up, **state}, args.json)
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    rce_args = args.rce_args[1:] if args.rce_args[:1] == ["--"] else args.rce_args
+    if not rce_args:
+        fail("nothing to run; usage: control-rce run --name NAME -- <rce args>", 2)
+    joined = " ".join(rce_args)
+    if SITE_TOKEN in joined or OTHER_TOKEN in joined:
+        state = load_state(args.run)
+        if not state or not owns_server(state):
+            fail(
+                "rce args use {site} but no fixture site is running; run: control-rce site start",
+                2,
+            )
+        rce_args = [
+            a.replace(SITE_TOKEN, state["base_url"]).replace(OTHER_TOKEN, state["other_origin"])
+            for a in rce_args
+        ]
+
+    evidence_root = run_dir(args.run) / "evidence"
+    evidence_root.mkdir(parents=True, exist_ok=True)
+    seq = len(list(evidence_root.iterdir())) + 1
+    out_dir = evidence_root / f"{seq:02d}-{args.name}"
+    out_dir.mkdir()
+    rce_args = [a.replace("{out}", str(out_dir)) for a in rce_args]
+
+    cmd = ["uv", "run", "--project", str(REPO), "rce", *rce_args]
+    started = time.time()
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout)
+        stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
+    except subprocess.TimeoutExpired as exc:
+        # TimeoutExpired carries bytes even with text=True.
+        stdout = (exc.stdout or b"").decode(errors="replace")
+        stderr = (exc.stderr or b"").decode(errors="replace")
+        stderr += f"\ncontrol-rce: killed after {args.timeout}s (raise --timeout)\n"
+        code = 124
+    elapsed = round(time.time() - started, 2)
+    (out_dir / "command.txt").write_text(shlex.join(cmd) + "\n")
+    (out_dir / "stdout.txt").write_text(stdout)
+    (out_dir / "stderr.txt").write_text(stderr)
+    (out_dir / "exit_code.txt").write_text(f"{code}\n")
+
+    summary = {
+        "name": args.name,
+        "exit_code": code,
+        "seconds": elapsed,
+        "evidence_dir": str(out_dir),
+        "command": shlex.join(cmd),
+        "stdout_tail": stdout[-600:],
+        "stderr_tail": stderr[-600:],
+    }
+    emit(summary, args.json)
+    sys.exit(code)
+
+
+def venv_matches_checkout() -> tuple[bool, str]:
+    script = REPO / ".venv" / "bin" / "rce"
+    if not script.exists():
+        return False, "no .venv/bin/rce; run: uv sync --extra dev"
+    shebang = script.read_text().splitlines()[0]
+    expected = str(REPO / ".venv")
+    if expected not in shebang:
+        return (
+            False,
+            f"venv scripts point elsewhere ({shebang}); run: rm -rf .venv && uv sync --extra dev",
+        )
+    return True, "venv scripts point at this checkout"
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    checks: dict[str, dict] = {}
+
+    ok, detail = venv_matches_checkout()
+    checks["venv"] = {"ok": ok, "detail": detail}
+
+    help_run = subprocess.run(
+        ["uv", "run", "--project", str(REPO), "rce", "--help"], capture_output=True, text=True
+    )
+    checks["rce_cli"] = {
+        "ok": help_run.returncode == 0,
+        "detail": "rce --help exits 0" if help_run.returncode == 0 else help_run.stderr[-300:],
+    }
+
+    probe = (
+        "import importlib.util as u, json; print(json.dumps({m: u.find_spec(m) is not None "
+        "for m in ['fitz', 'youtube_transcript_api', 'playwright']}))"
+    )
+    mods = subprocess.run(
+        ["uv", "run", "--project", str(REPO), "python", "-c", probe],
+        capture_output=True,
+        text=True,
+    )
+    found = json.loads(mods.stdout) if mods.returncode == 0 else {}
+    checks["pdf_extra"] = {"ok": found.get("fitz", False), "detail": "pymupdf importable"}
+    checks["youtube_extra"] = {
+        "ok": found.get("youtube_transcript_api", False),
+        "detail": "youtube-transcript-api importable",
+    }
+    checks["browser_extra"] = {
+        "ok": found.get("playwright", False),
+        "detail": "playwright importable (chromium install not checked)",
+        "optional": True,
+    }
+
+    state = load_state(args.run)
+    if state:
+        up = owns_server(state) and answers(f"{state['base_url']}/index.html")
+        checks["fixture_site"] = {
+            "ok": up,
+            "detail": state["base_url"]
+            if up
+            else "recorded but not answering; run: control-rce site stop && control-rce site start",
+        }
+
+    if not args.offline:
+        net = answers("https://example.com/")
+        checks["network"] = {
+            "ok": net,
+            "detail": "https://example.com reachable"
+            if net
+            else "no network; live features cannot be verified (use --offline to skip)",
+            "optional": True,
+        }
+
+    required_ok = all(c["ok"] for c in checks.values() if not c.get("optional"))
+    result = {"ok": required_ok, "repo": str(REPO), "run": args.run, "checks": checks}
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        for name, check in checks.items():
+            mark = "ok  " if check["ok"] else ("warn" if check.get("optional") else "FAIL")
+            print(f"[{mark}] {name}: {check['detail']}")
+        print("doctor: " + ("ready" if required_ok else "not ready"))
+    sys.exit(0 if required_ok else 1)
+
+
+MARKER = re.compile(r"MARKER-[A-Z]+")
+
+
+def outline_rows(node: dict, level: int = 0) -> list[dict]:
+    marker = MARKER.search(node.get("content") or "")
+    rows = [
+        {
+            "level": level,
+            "type": node["content_type"],
+            "url": node["url"],
+            "marker": marker.group(0) if marker else None,
+            "chars": len(node.get("content") or ""),
+            "error": node.get("error"),
+            "note": (node.get("content") or "")[:60]
+            if (node.get("content") or "").startswith("[")
+            else None,
+            "title": node.get("title"),
+            "content": node.get("content"),
+        }
+    ]
+    for child in node.get("children", []):
+        rows.extend(outline_rows(child, level + 1))
+    return rows
+
+
+def resolve_evidence(run_id: str, ref: str) -> tuple[Path, Path | None]:
+    """Return (evidence dir, result.json or None) for 'last', an evidence dir, or a JSON file."""
+    if ref == "last":
+        evidence = run_dir(run_id) / "evidence"
+        runs = sorted(evidence.iterdir()) if evidence.exists() else []
+        if not runs:
+            fail(f"no runs recorded for run id '{run_id}'; pass --run or a path")
+        ref = str(runs[-1])
+    path = Path(ref)
+    if not path.exists():
+        fail(f"{path} not found")
+    if path.is_dir():
+        result = path / "result.json"
+        return path, result if result.exists() else None
+    return path.parent, path
+
+
+def resolve_result(run_id: str, ref: str) -> Path:
+    _, result = resolve_evidence(run_id, ref)
+    if result is None:
+        fail("no result.json in that evidence dir; run rce with -f json -o '{out}/result.json'")
+    return result
+
+
+def cmd_check(args: argparse.Namespace) -> None:
+    evidence, path = resolve_evidence(args.run, args.result)
+    problems = []
+    for text in args.stdout_has:
+        if text not in (evidence / "stdout.txt").read_text():
+            problems.append(f"stdout.txt lacks {text!r}")
+    for rel in args.file_exists:
+        if not (evidence / rel).exists():
+            problems.append(f"missing file {rel}")
+    if path is None:
+        if args.json_asserts:
+            problems.append("no result.json, so the JSON assertions cannot run")
+        path = evidence
+        rows = [{"level": 0, "type": None, "url": "", "marker": None, "error": None}]
+    else:
+        rows = outline_rows(json.loads(path.read_text()))
+    markers = [r["marker"] for r in rows if r["marker"]]
+    children = sum(1 for r in rows if r["level"] == 1)
+    root = rows[0]
+    for m in args.has:
+        if f"MARKER-{m}" not in markers:
+            problems.append(f"missing MARKER-{m}")
+    for m in args.lacks:
+        if f"MARKER-{m}" in markers:
+            problems.append(f"unexpected MARKER-{m}")
+    for m in args.once:
+        if markers.count(f"MARKER-{m}") != 1:
+            problems.append(f"MARKER-{m} appears {markers.count(f'MARKER-{m}')} times, expected 1")
+    if args.children is not None and children != args.children:
+        problems.append(f"{children} children, expected {args.children}")
+    if args.min_children is not None and children < args.min_children:
+        problems.append(f"{children} children, expected at least {args.min_children}")
+    if args.max_children is not None and children > args.max_children:
+        problems.append(f"{children} children, expected at most {args.max_children}")
+    for pair in args.type:
+        marker, _, ctype = pair.partition("=")
+        types = {r["type"] for r in rows if r["marker"] == f"MARKER-{marker}"}
+        if types != {ctype}:
+            problems.append(
+                f"MARKER-{marker} has type {sorted(types) or 'none'}, expected {ctype}"
+            )
+    if args.under:
+        child, _, parent = args.under.partition(":")
+        parent_level = None
+        for r in rows:
+            if parent_level is not None and r["level"] <= parent_level:
+                parent_level = None
+            if r["marker"] == f"MARKER-{parent}":
+                parent_level = r["level"]
+            elif r["marker"] == f"MARKER-{child}" and parent_level == r["level"] - 1:
+                break
+        else:
+            problems.append(f"MARKER-{child} is not a direct child of MARKER-{parent}")
+    if args.root_url_prefix and not root["url"].startswith(args.root_url_prefix):
+        problems.append(f"root url {root['url']} does not start with {args.root_url_prefix}")
+    if args.root_type and root["type"] != args.root_type:
+        problems.append(f"root type {root['type']}, expected {args.root_type}")
+    if args.root_error is not None and root["error"] != args.root_error:
+        problems.append(f"root error {root['error']!r}, expected {args.root_error!r}")
+    if args.root_title_prefix and not str(root.get("title") or "").startswith(
+        args.root_title_prefix
+    ):
+        problems.append(
+            f"root title {root.get('title')!r} does not start with {args.root_title_prefix!r}"
+        )
+    for text in args.root_content_has:
+        if text not in (root.get("content") or ""):
+            problems.append(f"root content lacks {text!r}")
+    if args.root_min_chars is not None and root.get("chars", 0) < args.root_min_chars:
+        problems.append(
+            f"root has {root.get('chars', 0)} chars, expected at least {args.root_min_chars}"
+        )
+    if args.url_absent:
+        hits = [r["url"] for r in rows[1:] if r["url"].split("/", 3)[-1] in args.url_absent]
+        if hits:
+            problems.append(f"unexpected child urls {hits}")
+
+    result = {
+        "ok": not problems,
+        "result": str(path),
+        "children": children,
+        "markers": markers,
+        "problems": problems,
+    }
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(("PASS " if not problems else "FAIL ") + str(path))
+        for p in problems:
+            print(f"  - {p}")
+    sys.exit(0 if not problems else 1)
+
+
+def cmd_outline(args: argparse.Namespace) -> None:
+    path = resolve_result(args.run, args.result)
+    rows = outline_rows(json.loads(path.read_text()))
+    if args.json:
+        print(json.dumps([{k: v for k, v in r.items() if k != "content"} for r in rows], indent=2))
+        return
+    for row in rows:
+        extra = row["marker"] or row["note"] or f"{row['chars']} chars"
+        err = f"  error={row['error']}" if row["error"] else ""
+        print(f"{'  ' * row['level']}- {row['type']:<8} {row['url']}  {extra}{err}")
+
+
+def cmd_cleanup(args: argparse.Namespace) -> None:
+    site = stop_site(args.run)
+    evidence = run_dir(args.run) / "evidence"
+    emit(
+        {"site": site, "evidence_kept": str(evidence) if evidence.exists() else "none"}, args.json
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="control-rce",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--run",
+        default=os.environ.get("RCE_VERIFY_RUN", "default"),
+        help="run id; isolates state and evidence (env RCE_VERIFY_RUN, default 'default')",
+    )
+    common.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    doctor = sub.add_parser(
+        "doctor",
+        parents=[common],
+        help="check the checkout is worth driving",
+        description="Read-only readiness check. Example: control-rce doctor --json",
+    )
+    doctor.add_argument(
+        "--offline", action="store_true", help="skip the network reachability check"
+    )
+    doctor.set_defaults(func=cmd_doctor)
+
+    site = sub.add_parser("site", help="manage the local fixture site")
+    site_sub = site.add_subparsers(dest="site_command", required=True)
+    start = site_sub.add_parser(
+        "start",
+        parents=[common],
+        help="serve the fixture site on 127.0.0.1",
+        description="Copy fixtures to .verify/<run>/site, generate the PDF, serve it. "
+        "Idempotent. Example: control-rce site start --json",
+    )
+    start.add_argument("--port", type=int, default=0, help="port to bind (default: a free one)")
+    start.set_defaults(func=cmd_site_start)
+    site_sub.add_parser(
+        "stop",
+        parents=[common],
+        help="stop this run's fixture server",
+        description="Stops only the server this run started.",
+    ).set_defaults(func=cmd_site_stop)
+    site_sub.add_parser(
+        "status", parents=[common], help="show the fixture site state"
+    ).set_defaults(func=cmd_site_status)
+
+    run = sub.add_parser(
+        "run",
+        parents=[common],
+        help="run rce and capture evidence",
+        description="Run `uv run rce <args>` and save command, stdout, stderr and exit code to "
+        ".verify/<run>/evidence/NN-<name>/. Tokens: {site} = fixture base URL, "
+        "{other} = same server as a different host (localhost), {out} = this evidence dir. "
+        "Exits with rce's exit code.\n\n"
+        "Example: control-rce run --name depth1 -- '{site}/index.html' -d 1 --delay 0 "
+        "-f json -o '{out}/result.json'",
+    )
+    run.add_argument("--name", required=True, help="short label for the evidence folder")
+    run.add_argument("--timeout", type=int, default=180, help="seconds before rce is killed")
+    run.add_argument("rce_args", nargs=argparse.REMAINDER, help="-- then the rce arguments")
+    run.set_defaults(func=cmd_run)
+
+    outline = sub.add_parser(
+        "outline",
+        parents=[common],
+        help="print the node tree of a JSON result",
+        description="One line per node: type, URL, fixture marker (MARKER-*) or note, error. "
+        "Example: control-rce outline .verify/default/evidence/01-depth1/result.json",
+    )
+    outline.add_argument(
+        "result", help="'last' (this run id's latest run), an evidence dir, or a JSON file"
+    )
+    outline.set_defaults(func=cmd_outline)
+
+    check = sub.add_parser(
+        "check",
+        parents=[common],
+        help="assert on a JSON result; exits 1 with the reasons on failure",
+        description="Markers are given without the MARKER- prefix. "
+        "Example: control-rce check last --has A --has B --lacks DEEP --children 5 --type PDF=pdf",
+    )
+    check.add_argument("result", help="'last', an evidence dir, or a JSON file")
+    check.add_argument(
+        "--has", action="append", default=[], metavar="M", help="marker must appear"
+    )
+    check.add_argument(
+        "--lacks", action="append", default=[], metavar="M", help="marker must not appear"
+    )
+    check.add_argument(
+        "--once", action="append", default=[], metavar="M", help="marker must appear exactly once"
+    )
+    check.add_argument("--children", type=int, help="exact number of direct children of the root")
+    check.add_argument("--min-children", type=int)
+    check.add_argument("--max-children", type=int)
+    check.add_argument(
+        "--type",
+        action="append",
+        default=[],
+        metavar="M=TYPE",
+        help="content_type of the node with marker M, e.g. PDF=pdf",
+    )
+    check.add_argument(
+        "--under",
+        metavar="CHILD:PARENT",
+        help="CHILD must be a direct child of PARENT, e.g. DEEP:A",
+    )
+    check.add_argument(
+        "--url-absent",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="no child may have this path, e.g. index.html#methods",
+    )
+    check.add_argument(
+        "--root-url-prefix", help="root url must start with this, e.g. http://127.0.0.1:"
+    )
+    check.add_argument("--root-type", help="root content_type, e.g. error")
+    check.add_argument("--root-error", help="exact root error text")
+    check.add_argument("--root-title-prefix", help="root title must start with this")
+    check.add_argument(
+        "--root-content-has",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help="root content must contain TEXT",
+    )
+    check.add_argument(
+        "--root-min-chars", type=int, help="root content must be at least this long"
+    )
+    check.add_argument(
+        "--stdout-has",
+        action="append",
+        default=[],
+        metavar="TEXT",
+        help="stdout.txt of the run must contain TEXT (no result.json needed)",
+    )
+    check.add_argument(
+        "--file-exists",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="PATH relative to the evidence dir must exist, e.g. tree/INDEX.md",
+    )
+    check.set_defaults(func=cmd_check)
+
+    sub.add_parser(
+        "cleanup",
+        parents=[common],
+        help="stop the site and remove scratch state; keep evidence",
+        description="Example: control-rce cleanup",
+    ).set_defaults(func=cmd_cleanup)
+
+    args = parser.parse_args()
+    if args.func is cmd_check:
+        args.json_asserts = any(
+            [
+                args.has,
+                args.lacks,
+                args.once,
+                args.type,
+                args.under,
+                args.url_absent,
+                args.children is not None,
+                args.min_children is not None,
+                args.max_children is not None,
+                args.root_url_prefix,
+                args.root_type,
+                args.root_error is not None,
+                args.root_title_prefix,
+                args.root_content_has,
+                args.root_min_chars is not None,
+            ]
+        )
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
