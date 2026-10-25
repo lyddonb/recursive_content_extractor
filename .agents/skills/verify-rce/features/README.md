@@ -31,7 +31,7 @@ The maintained record of what an rce user can do and how to prove each thing wor
 ## Proof and skip reporting
 
 - Proof is the evidence folder plus the `check` PASS line.
-- For errors, use `check --root-error`. rce exits 0 even when a URL fails.
+- For errors, use `check --root-error` and `--exit-code 1`. Child failures don't change the exit code.
 - Report a live feature as not verified, with the doctor output, when the network is down. Don't substitute a fixture run for a live one.
 - `--browser` (Playwright) isn't mapped yet. Report it as not verified.
 
