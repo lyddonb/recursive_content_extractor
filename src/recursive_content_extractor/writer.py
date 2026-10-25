@@ -249,11 +249,13 @@ def write_tree_to_directory(root: ContentNode, output_dir: Path, fmt: str = "mar
 
             # Relative path from this node's content file to child's content file
             child_file_rel = Path(dir_name) / f"content{ext}"
-            child_paths.append((
-                child.title or child.url,
-                child.content_type.value,
-                child_file_rel,
-            ))
+            child_paths.append(
+                (
+                    child.title or child.url,
+                    child.content_type.value,
+                    child_file_rel,
+                )
+            )
 
         # Write this node's content file
         content_file = node_dir / f"content{ext}"

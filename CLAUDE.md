@@ -68,7 +68,7 @@ uv run playwright install chromium   # optional, for --browser flag
 uv run rce <URL> [--depth N] [--format markdown|json|tree] [--browser] [--output FILE]
 
 # Run checks
-make check        # runs lint + typecheck + test
+make check        # runs lint + format check + typecheck + test
 make test         # uv run pytest -v
 make lint         # uv run ruff check src/ tests/
 make format       # uv run ruff format src/ tests/

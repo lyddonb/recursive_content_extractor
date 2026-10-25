@@ -285,9 +285,7 @@ class TestWriteTreeToDirectory:
         content = (out / "content.md").read_text()
         assert "Connection timed out" in content
 
-    def test_index_json_child_files_are_relative(
-        self, tmp_path: Path, nested_tree: ContentNode
-    ):
+    def test_index_json_child_files_are_relative(self, tmp_path: Path, nested_tree: ContentNode):
         out = tmp_path / "output"
         write_tree_to_directory(nested_tree, out, "markdown")
 

@@ -28,7 +28,9 @@ class MockTransport(httpx.AsyncBaseTransport):
         return item
 
 
-def _make_response(status_code: int = 200, headers: dict[str, str] | None = None) -> httpx.Response:
+def _make_response(
+    status_code: int = 200, headers: dict[str, str] | None = None
+) -> httpx.Response:
     return httpx.Response(status_code=status_code, headers=headers or {})
 
 
@@ -71,10 +73,12 @@ class TestRetryTransport:
         assert inner._call_count == 2
 
     async def test_retry_on_429_honors_retry_after(self):
-        inner = MockTransport([
-            _make_response(429, headers={"retry-after": "0"}),
-            _make_response(200),
-        ])
+        inner = MockTransport(
+            [
+                _make_response(429, headers={"retry-after": "0"}),
+                _make_response(200),
+            ]
+        )
         transport = RetryTransport(inner, max_retries=2, backoff_factor=0)
 
         resp = await transport.handle_async_request(_make_request())
@@ -82,11 +86,13 @@ class TestRetryTransport:
         assert inner._call_count == 2
 
     async def test_exhaust_retries_returns_last_response(self):
-        inner = MockTransport([
-            _make_response(503),
-            _make_response(503),
-            _make_response(503),
-        ])
+        inner = MockTransport(
+            [
+                _make_response(503),
+                _make_response(503),
+                _make_response(503),
+            ]
+        )
         transport = RetryTransport(inner, max_retries=2, backoff_factor=0)
 
         resp = await transport.handle_async_request(_make_request())
@@ -94,10 +100,12 @@ class TestRetryTransport:
         assert inner._call_count == 3
 
     async def test_retry_on_connect_error_then_succeed(self):
-        inner = MockTransport([
-            httpx.ConnectError("connection reset"),
-            _make_response(200),
-        ])
+        inner = MockTransport(
+            [
+                httpx.ConnectError("connection reset"),
+                _make_response(200),
+            ]
+        )
         transport = RetryTransport(inner, max_retries=2, backoff_factor=0)
 
         resp = await transport.handle_async_request(_make_request())
@@ -105,11 +113,13 @@ class TestRetryTransport:
         assert inner._call_count == 2
 
     async def test_exhaust_retries_raises_connect_error(self):
-        inner = MockTransport([
-            httpx.ConnectError("fail 1"),
-            httpx.ConnectError("fail 2"),
-            httpx.ConnectError("fail 3"),
-        ])
+        inner = MockTransport(
+            [
+                httpx.ConnectError("fail 1"),
+                httpx.ConnectError("fail 2"),
+                httpx.ConnectError("fail 3"),
+            ]
+        )
         transport = RetryTransport(inner, max_retries=2, backoff_factor=0)
 
         with pytest.raises(httpx.ConnectError):
@@ -117,10 +127,12 @@ class TestRetryTransport:
         assert inner._call_count == 3
 
     async def test_retry_on_read_timeout_then_succeed(self):
-        inner = MockTransport([
-            httpx.ReadTimeout("timeout"),
-            _make_response(200),
-        ])
+        inner = MockTransport(
+            [
+                httpx.ReadTimeout("timeout"),
+                _make_response(200),
+            ]
+        )
         transport = RetryTransport(inner, max_retries=2, backoff_factor=0)
 
         resp = await transport.handle_async_request(_make_request())
@@ -176,10 +188,12 @@ class TestRetryTransport:
         assert inner._call_count == 2
 
     async def test_retry_on_connect_timeout(self):
-        inner = MockTransport([
-            httpx.ConnectTimeout("timeout"),
-            _make_response(200),
-        ])
+        inner = MockTransport(
+            [
+                httpx.ConnectTimeout("timeout"),
+                _make_response(200),
+            ]
+        )
         transport = RetryTransport(inner, max_retries=1, backoff_factor=0)
 
         resp = await transport.handle_async_request(_make_request())

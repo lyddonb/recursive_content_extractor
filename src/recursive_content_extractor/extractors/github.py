@@ -24,54 +24,58 @@ _REPO_PATTERN = re.compile(
 )
 
 # GitHub paths that are NOT repositories
-_RESERVED_PATHS = frozenset({
-    "explore",
-    "topics",
-    "trending",
-    "collections",
-    "events",
-    "sponsors",
-    "settings",
-    "login",
-    "signup",
-    "join",
-    "pricing",
-    "features",
-    "marketplace",
-    "notifications",
-    "new",
-    "organizations",
-    "codespaces",
-    "issues",
-    "pulls",
-    "discussions",
-    "search",
-    "about",
-    "security",
-    "enterprise",
-    "team",
-    "customer-stories",
-    "readme",
-    "apps",
-    "site",
-    "user-attachments",
-    "assets",
-})
+_RESERVED_PATHS = frozenset(
+    {
+        "explore",
+        "topics",
+        "trending",
+        "collections",
+        "events",
+        "sponsors",
+        "settings",
+        "login",
+        "signup",
+        "join",
+        "pricing",
+        "features",
+        "marketplace",
+        "notifications",
+        "new",
+        "organizations",
+        "codespaces",
+        "issues",
+        "pulls",
+        "discussions",
+        "search",
+        "about",
+        "security",
+        "enterprise",
+        "team",
+        "customer-stories",
+        "readme",
+        "apps",
+        "site",
+        "user-attachments",
+        "assets",
+    }
+)
 
 # Badge/shield hosts to skip when extracting links from README
-_BADGE_HOSTS = frozenset({
-    "img.shields.io",
-    "badge.fury.io",
-    "badges.gitter.im",
-    "travis-ci.org",
-    "travis-ci.com",
-    "ci.appveyor.com",
-    "codecov.io",
-    "coveralls.io",
-    "david-dm.org",
-    "snyk.io",
-    "github.com/workflows",
-})
+_BADGE_HOSTS = frozenset(
+    {
+        "img.shields.io",
+        "badge.fury.io",
+        "badges.gitter.im",
+        "travis-ci.org",
+        "travis-ci.com",
+        "ci.appveyor.com",
+        "codecov.io",
+        "coveralls.io",
+        "david-dm.org",
+        "snyk.io",
+        "github.com/workflows",
+    }
+)
 
 _URL_PATTERN = re.compile(r"https?://[^\s)\]>\"'`]+")
 
@@ -140,9 +144,7 @@ class GitHubExtractor(BaseExtractor):
             metadata={"owner": owner, "repo": repo},
         )
 
-    async def _try_api(
-        self, original_url: str, owner: str, repo: str
-    ) -> ExtractionResult | None:
+    async def _try_api(self, original_url: str, owner: str, repo: str) -> ExtractionResult | None:
         """Use GitHub REST API for metadata and README."""
         client = await self._get_client()
 
@@ -240,9 +242,7 @@ class GitHubExtractor(BaseExtractor):
 
         for branch in ("main", "master"):
             try:
-                raw_url = (
-                    f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/README.md"
-                )
+                raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/README.md"
                 resp = await client.get(raw_url)
                 if resp.status_code == 200:
                     readme = resp.text
@@ -251,9 +251,7 @@ class GitHubExtractor(BaseExtractor):
                     return ExtractionResult(
                         url=original_url,
                         title=f"{owner}/{repo}",
-                        content=f"# {owner}/{repo}\n\n{readme}"[
-                            : self.config.max_content_length
-                        ],
+                        content=f"# {owner}/{repo}\n\n{readme}"[: self.config.max_content_length],
                         content_type=ContentType.GITHUB,
                         links=links[: self.config.max_links_per_page],
                         metadata={
@@ -274,9 +272,7 @@ class GitHubExtractor(BaseExtractor):
         client = await self._get_client()
 
         try:
-            api_url = (
-                f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={ref}"
-            )
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={ref}"
             resp = await client.get(
                 api_url,
                 headers={"Accept": "application/vnd.github.raw+json"},

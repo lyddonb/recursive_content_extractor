@@ -160,6 +160,4 @@ class ExtractorConfig:
         if self.max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {self.max_retries}")
         if self.retry_backoff_factor < 0:
-            raise ValueError(
-                f"retry_backoff_factor must be >= 0, got {self.retry_backoff_factor}"
-            )
+            raise ValueError(f"retry_backoff_factor must be >= 0, got {self.retry_backoff_factor}")
