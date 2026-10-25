@@ -248,6 +248,37 @@ class TestRecursiveExtractor:
         assert result.content_type == ContentType.ERROR
         assert result.error == "connection refused"
 
+    @pytest.mark.asyncio
+    async def test_max_links_follows_first_new_links_in_order(self):
+        config = ExtractorConfig(depth=1, rate_limit_delay=0, max_links_per_page=2)
+        extractor = RecursiveExtractor(config=config)
+        mock = MockExtractor(
+            config=config,
+            results={
+                "https://example.com": ExtractionResult(
+                    url="https://example.com",
+                    title="Root",
+                    content_type=ContentType.ARTICLE,
+                    links=[
+                        "https://example.com#top",
+                        "https://example.com/a",
+                        "https://example.com/a#section",
+                        "https://example.com/b",
+                        "https://example.com/c",
+                    ],
+                ),
+            },
+        )
+        extractor.classifier.register(type(mock), priority=1000)
+        extractor.classifier._instances[type(mock)] = mock
+
+        result = await extractor.extract("https://example.com")
+
+        assert [c.url for c in result.children] == [
+            "https://example.com/a",
+            "https://example.com/b",
+        ]
+
     def test_register_extractor(self):
         extractor = RecursiveExtractor(depth=0)
 

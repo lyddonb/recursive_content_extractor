@@ -63,6 +63,19 @@ class TestArticleExtract:
         await extractor.close()
 
     @pytest.mark.asyncio
+    async def test_returns_all_links_in_page_order(self, httpx_mock):
+        hrefs = [f"/page-{c}" for c in "zyxwvutsrqponmlkjihgfedcba"]
+        body = "".join(f'<a href="{h}">{h}</a>' for h in hrefs)
+        httpx_mock.add_response(
+            url="https://example.com/", text=f"<html><body>{body}</body></html>"
+        )
+        extractor = ArticleExtractor(config=ExtractorConfig(timeout=10, max_links_per_page=2))
+        result = await extractor.extract("https://example.com/")
+
+        assert result.links == [f"https://example.com{h}" for h in hrefs]
+        await extractor.close()
+
+    @pytest.mark.asyncio
     async def test_extracts_embedded_links(self, httpx_mock, sample_html_with_embeds):
         httpx_mock.add_response(url="https://example.com/embeds", text=sample_html_with_embeds)
         extractor = ArticleExtractor(config=ExtractorConfig(timeout=10))
