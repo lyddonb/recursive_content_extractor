@@ -18,6 +18,54 @@ logger = logging.getLogger(__name__)
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
+class ResponseTooLarge(Exception):
+    """A response body went over `ExtractorConfig.max_response_bytes`."""
+
+
+class SizeLimitTransport(httpx.AsyncBaseTransport):
+    """Refuse a response whose body is over `limit` bytes, by its Content-Length when it has
+    one and by counting while it streams when it doesn't, so a huge body is never held whole."""
+
+    def __init__(self, transport: httpx.AsyncBaseTransport, limit: int) -> None:
+        self._transport = transport
+        self._limit = limit
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        response = await self._transport.handle_async_request(request)
+        length = response.headers.get("Content-Length", "")
+        if length.isdigit() and int(length) > self._limit:
+            await response.aclose()
+            raise ResponseTooLarge(f"{request.url} is {length} bytes, over {self._limit} bytes")
+        return httpx.Response(
+            status_code=response.status_code,
+            headers=response.headers,
+            stream=_CappedStream(response, self._limit, str(request.url)),
+            request=request,
+            extensions=response.extensions,
+        )
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+
+class _CappedStream(httpx.AsyncByteStream):
+    def __init__(self, response: httpx.Response, limit: int, url: str) -> None:
+        self._response = response
+        self._limit = limit
+        self._url = url
+
+    async def __aiter__(self):  # type: ignore[no-untyped-def]
+        seen = 0
+        async for chunk in self._response.aiter_raw():
+            seen += len(chunk)
+            if seen > self._limit:
+                raise ResponseTooLarge(f"{self._url} is over {self._limit} bytes")
+            yield chunk
+
+    async def aclose(self) -> None:
+        await self._response.aclose()
+
+
 class RetryTransport(httpx.AsyncBaseTransport):
     """Async HTTP transport that retries on transient failures.
 
@@ -115,11 +163,15 @@ class BaseExtractor(abc.ABC):
                     max_retries=self.config.max_retries,
                     backoff_factor=self.config.retry_backoff_factor,
                 )
+            if self.config.max_response_bytes is not None:
+                transport = SizeLimitTransport(transport, self.config.max_response_bytes)
+            hooks = [self.config.request_hook] if self.config.request_hook else []
             self._client = httpx.AsyncClient(
                 transport=transport,
                 timeout=self.config.timeout,
                 headers={"User-Agent": self.config.user_agent},
                 follow_redirects=True,
+                event_hooks={"request": hooks},
             )
         return self._client
 
