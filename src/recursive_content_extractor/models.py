@@ -6,7 +6,12 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    import httpx
 
 
 class ContentType(StrEnum):
@@ -143,6 +148,11 @@ class ExtractorConfig:
     max_concurrent_requests: int = 5
     max_retries: int = 2
     retry_backoff_factor: float = 0.5
+    # Called with every request before it is sent, redirects included. Raise to refuse it:
+    # a caller fetching untrusted links can check where each request goes (SSRF).
+    request_hook: Callable[[httpx.Request], Awaitable[None]] | None = None
+    # Refuse a response whose body is larger than this many bytes. None: no limit.
+    max_response_bytes: int | None = None
 
     def __post_init__(self):
         if self.depth < 0:
